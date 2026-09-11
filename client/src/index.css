@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    @apply bg-slate-950 text-slate-100 font-sans antialiased overflow-hidden select-none;
+  }
+}
+
+/* Custom scrollbars for high-density desktop ERP tables */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(51, 65, 85, 0.8);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 1);
+}
+
+/* Monospace font for IMEI, serials, and thermal receipt print */
+.font-mono-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+/* ESC/POS Thermal Receipt Simulation Container */
+.receipt-paper {
+  background: #fffef5;
+  color: #111827;
+  font-family: 'Courier New', Courier, monospace;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+}
+
+/* Tabular Figures Consistency across all numbers and currencies (Proposal 38) */
+.tabular-nums,
+table,
+.currency-amount,
+.price-tag,
+.imei-badge {
+  font-variant-numeric: tabular-nums;
+  -webkit-font-feature-settings: "tnum";
+  font-feature-settings: "tnum";
+}
+
+/* 80mm & 57mm Thermal Print Stylesheets (Proposal 42) */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .printable-receipt, .printable-receipt * {
+    visibility: visible;
+  }
+  .printable-receipt {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: white;
+    color: black;
+  }
+
+  /* 80mm standard width */
+  .receipt-80mm {
+    width: 72mm !important;
+    max-width: 72mm !important;
+    font-size: 11px !important;
+    line-height: 1.2 !important;
+  }
+
+  /* 57mm compact width */
+  .receipt-57mm {
+    width: 48mm !important;
+    max-width: 48mm !important;
+    font-size: 9px !important;
+    line-height: 1.1 !important;
+  }
+}

@@ -1,0 +1,32 @@
+config:
+  target: "http://localhost:5000"
+  phases:
+    - duration: 30
+      arrivalRate: 10
+      rampTo: 50
+      name: "Ramp up load"
+    - duration: 60
+      arrivalRate: 50
+      name: "Sustained peak load (50 req/sec)"
+  defaults:
+    headers:
+      x-requested-with: "XMLHttpRequest"
+      x-correlation-id: "load-test-benchmark"
+
+scenarios:
+  - name: "Health, AI Forecast & Diagnostic KB Benchmark"
+    flow:
+      - get:
+          url: "/api/health"
+      - get:
+          url: "/api/ai/forecast"
+      - get:
+          url: "/api/ai/diagnostics?brand=Apple"
+      - get:
+          url: "/api/advanced-inventory/auto-reorder"
+      - post:
+          url: "/api/ai/fraud-check"
+          json:
+            transaction_type: "FINTECH_TRANSFER"
+            amount: 2500
+            phone_number: "01001234567"

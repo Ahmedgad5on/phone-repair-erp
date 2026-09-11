@@ -1,0 +1,38 @@
+{
+  "appId": "com.antigravity.modularerp",
+  "productName": "Modular Mobile ERP",
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "electron/**/*",
+    "client/dist/**/*",
+    "server/dist/**/*"
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      },
+      {
+        "target": "msi",
+        "arch": ["x64"]
+      }
+    ],
+    "publisherName": "Antigravity Engineering",
+    "requestedExecutionLevel": "asInvoker"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Modular Mobile ERP"
+  },
+  "msi": {
+    "oneClick": true,
+    "perMachine": true,
+    "runAfterFinish": true
+  }
+}

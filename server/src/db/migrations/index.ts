@@ -1,0 +1,28 @@
+import type { Database } from 'better-sqlite3';
+import { migration001, Migration } from './001_initial_extensions';
+import { migration002 } from './002_repair_r1';
+import { migration003 } from './003_retail_r2';
+import { migration004 } from './004_inventory_r3';
+import { migration005 } from './005_fintech_r4';
+import { migration006 } from './006_security_constraints';
+import { migration007 } from './007_repair_lab_25_ideas';
+import { migration008 } from './008_retail_pos_25_ideas';
+import { migration009 } from './009_spare_parts_wholesale_25_ideas';
+import { migration010 } from './010_fintech_treasury_25_ideas';
+
+export type { Migration };
+
+export const migrations: Migration[] = [
+  migration001,
+  migration002,
+  migration003,
+  migration004,
+  migration005,
+  migration006,
+  migration007,
+  migration008,
+  migration009,
+  migration010
+];
+
+export default migrations;
