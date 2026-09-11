@@ -6,6 +6,7 @@
     "dev:server": "cd server && npm run dev",
     "dev:client": "cd client && npm run dev",
     "dev": "node -e \"const { spawn } = require('child_process'); spawn('npm', ['run', 'dev:server'], { stdio: 'inherit', shell: true }); spawn('npm', ['run', 'dev:client'], { stdio: 'inherit', shell: true });\"",
+    "sync": "git add . && git commit -m \"chore: update application\" && git push origin main",
     "build:client": "cd client && npm run build",
     "build:server": "cd server && npm run build",
     "build": "npm run build:server && npm run build:client",
