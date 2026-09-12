@@ -108,7 +108,7 @@ assert(inStockImei !== undefined, `In-stock IMEI found: ${inStockImei.imei}`);
 
 // TEST 6: Spare Parts Compatibility & Multi-Tier Pricing
 console.log('\n[Test Suite 6: Spare Parts Compatibility & Quality Tiers]');
-const sparePart = db.prepare("SELECT * FROM items WHERE category = 'SPARE_PART' LIMIT 1").get() as any;
+const sparePart = db.prepare("SELECT * FROM items WHERE category = 'SPARE_PART' AND wholesale_price > 0 LIMIT 1").get() as any;
 assert(sparePart.wholesale_price > 0, `Tier 1 (Wholesale): ${sparePart.wholesale_price} EGP`);
 assert(sparePart.retail_price > sparePart.wholesale_price, `Tier 2 (Retail): ${sparePart.retail_price} EGP`);
 assert(sparePart.bulk_price > 0, `Tier 3 (Bulk): ${sparePart.bulk_price} EGP`);
@@ -1430,11 +1430,12 @@ async function runExtendedSuites() {
   // Workshop technician creates ticket and moves to IN_REPAIR with 1 unit of this part attached
   const raceCustId = 'cust-race-' + uuidv4().slice(0, 6);
   db.prepare(`INSERT INTO customers (id, store_id, name, phone) VALUES (?, ?, 'Race Customer', '01011112222')`).run(raceCustId, defaultStore.id);
+  const getNextTicketNumber = () => ((db.prepare('SELECT COALESCE(MAX(ticket_number), 1000) + 1 as num FROM repair_tickets').get() as any).num);
   const raceTicketId = 'tkt-race-' + uuidv4().slice(0, 6);
   db.prepare(`
     INSERT INTO repair_tickets (id, ticket_number, store_id, customer_id, device_brand, device_model, reported_defects, status, priority, estimated_cost, release_otp)
-    VALUES (?, 9901, ?, ?, 'Apple', 'iPhone 15', 'Broken Screen', 'IN_REPAIR', 'NORMAL', 2800, '4321')
-  `).run(raceTicketId, defaultStore.id, raceCustId);
+    VALUES (?, ?, ?, ?, 'Apple', 'iPhone 15', 'Broken Screen', 'IN_REPAIR', 'NORMAL', 2800, '4321')
+  `).run(raceTicketId, getNextTicketNumber(), defaultStore.id, raceCustId);
 
   // Allocate 1 unit of part to ticket
   const allocRes = await fetch(`${baseUrl}/api/repair/tickets/${raceTicketId}/consume-part`, {
@@ -1550,26 +1551,26 @@ async function runExtendedSuites() {
   const tkt1Id = 'tkt-deliv-' + uuidv4().slice(0, 6);
   db.prepare(`
     INSERT INTO repair_tickets (id, ticket_number, store_id, customer_id, device_brand, device_model, reported_defects, status, priority, estimated_cost, release_otp)
-    VALUES (?, 9911, ?, ?, 'Apple', 'iPhone 14', 'Battery Drain', 'DIAGNOSED', 'NORMAL', 950, '1111')
-  `).run(tkt1Id, defaultStore.id, raceCustId);
+    VALUES (?, ?, ?, ?, 'Apple', 'iPhone 14', 'Battery Drain', 'DIAGNOSED', 'NORMAL', 950, '1111')
+  `).run(tkt1Id, getNextTicketNumber(), defaultStore.id, raceCustId);
 
   // Create Ticket 2 (DIAGNOSED)
   const tkt2Id = 'tkt-canc-' + uuidv4().slice(0, 6);
   db.prepare(`
     INSERT INTO repair_tickets (id, ticket_number, store_id, customer_id, device_brand, device_model, reported_defects, status, priority, estimated_cost, release_otp)
-    VALUES (?, 9912, ?, ?, 'Apple', 'iPhone 14', 'Battery Swollen', 'DIAGNOSED', 'NORMAL', 950, '2222')
-  `).run(tkt2Id, defaultStore.id, raceCustId);
+    VALUES (?, ?, ?, ?, 'Apple', 'iPhone 14', 'Battery Swollen', 'DIAGNOSED', 'NORMAL', 950, '2222')
+  `).run(tkt2Id, getNextTicketNumber(), defaultStore.id, raceCustId);
 
   // Attach 1 part to Ticket 1 and 1 part to Ticket 2 (status DIAGNOSED -> is_reserved = 0 initially)
   db.prepare(`
     INSERT INTO repair_consumed_parts (id, ticket_id, item_id, part_name, vendor_batch_code, cost_price, selling_price, is_reserved)
     VALUES (?, ?, ?, 'OEM Battery iPhone 14', 'BATCH-01', 400, 950, 0)
-  `).run('rcp-life-1', tkt1Id, doubleLifeItemId);
+  `).run('rcp-life-' + uuidv4().slice(0, 6), tkt1Id, doubleLifeItemId);
 
   db.prepare(`
     INSERT INTO repair_consumed_parts (id, ticket_id, item_id, part_name, vendor_batch_code, cost_price, selling_price, is_reserved)
     VALUES (?, ?, ?, 'OEM Battery iPhone 14', 'BATCH-02', 400, 950, 0)
-  `).run('rcp-life-2', tkt2Id, doubleLifeItemId);
+  `).run('rcp-life-' + uuidv4().slice(0, 6), tkt2Id, doubleLifeItemId);
 
   // Move Ticket 1 to IN_REPAIR -> triggers reservation
   const tkt1InRepairRes = await fetch(`${baseUrl}/api/repair/tickets/${tkt1Id}/status`, {
