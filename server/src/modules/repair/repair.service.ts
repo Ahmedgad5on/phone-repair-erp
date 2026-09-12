@@ -456,7 +456,7 @@ export function calculateWarrantyForTicket(ticketId: string, deliveryDate: Date 
       const remainingMs = parentExpiryMs - deliveryMs;
       const remainingDays = Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
 
-      // 3-Day testing grace policy (DEC-041): if remaining days < 3, extend by 3 days
+      // 3-Day testing grace policy (DEC-041 / FR-007.3): if remaining days < 3, grant exactly 3 days from delivery
       if (remainingDays < 3) {
         const graceExpiryDate = new Date(deliveryMs + 3 * 24 * 60 * 60 * 1000).toISOString();
         return {

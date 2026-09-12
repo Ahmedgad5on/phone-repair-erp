@@ -2273,12 +2273,12 @@ async function runExtendedSuites() {
 
   await deliverRepairTicket(graceReworkTicketId, { touch: true });
   const graceReworkDb = db.prepare('SELECT warranty_duration_days, warranty_expiry_date FROM repair_tickets WHERE id = ?').get(graceReworkTicketId) as any;
-  assert(graceReworkDb.warranty_duration_days === 3, 'Vector 5b: Rework with < 3 days remaining extended with 3-day minimum testing grace per DEC-041');
+  assert(graceReworkDb.warranty_duration_days === 3, 'Vector 5b: Rework with < 3 days remaining granted exactly 3-day window per FR-007.3');
   const graceExpiry = new Date(graceReworkDb.warranty_expiry_date);
   const graceDiffDays = Math.round((graceExpiry.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
   assert(graceDiffDays >= 3, 'Vector 5c: Expiry date pushed 3 days from delivery date');
 
-  // Vector 6: Expired warranty intake rejected with HTTP 400 (FR-007.4)
+  // Vector 6: Expired warranty intake rejected with HTTP 422 (FR-007.2)
   const maxTktObj2 = db.prepare('SELECT COALESCE(MAX(ticket_number), 1000) as m FROM repair_tickets').get() as any;
   const nextTkt2 = maxTktObj2.m + 1000;
   const expiredParentTicketId = 'tkt-expired-parent-' + uuidv4().slice(0, 6);
@@ -2302,8 +2302,207 @@ async function runExtendedSuites() {
     })
   });
   const expiredData = (await expiredIntakeRes.json()) as any;
-  assert(expiredIntakeRes.status === 400, 'Vector 6a: Expired warranty intake strictly rejected with HTTP 400');
-  assert(expiredData.code === 'WARRANTY_EXPIRED', 'Vector 6b: Returned error code WARRANTY_EXPIRED per FR-007.4');
+  assert(expiredIntakeRes.status === 422, 'Vector 6a: Expired warranty intake strictly rejected with HTTP 422 per FR-007.2');
+  assert(expiredData.code === 'WARRANTY_EXPIRED', 'Vector 6b: Returned error code WARRANTY_EXPIRED per FR-007.2');
+
+  // Vector 7: Pre-migration parent with NULL warranty_expiry_date → HTTP 422 WARRANTY_RECORD_INCOMPLETE (M1)
+  const nullExpiryParentId = 'tkt-null-expiry-' + uuidv4().slice(0, 6);
+  const maxTktObj3 = db.prepare('SELECT COALESCE(MAX(ticket_number), 1000) as m FROM repair_tickets').get() as any;
+  const nextTkt3 = maxTktObj3.m + 1000;
+  db.prepare(`
+    INSERT INTO repair_tickets (id, ticket_number, store_id, customer_id, device_brand, device_model, reported_defects, release_otp, status, warranty_duration_days, warranty_expiry_date)
+    VALUES (?, ?, ?, ?, 'Samsung', 'Galaxy A54', 'Screen Repair', '9999', 'DELIVERED', 90, NULL)
+  `).run(nullExpiryParentId, nextTkt3, defaultStoreObj.id, defaultCustomerObj.id);
+
+  const nullExpiryIntakeRes = await fetch(`${baseUrl}/api/repair/tickets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_name: 'Null Expiry Customer',
+      customer_phone: '01066665555',
+      device_brand: 'Samsung',
+      device_model: 'Galaxy A54',
+      reported_defects: 'Warranty claim on pre-migration ticket',
+      parent_ticket_id: nullExpiryParentId,
+      is_warranty_repair: 1
+    })
+  });
+  const nullExpiryData = (await nullExpiryIntakeRes.json()) as any;
+  assert(nullExpiryIntakeRes.status === 422, 'Vector 7a: Pre-migration parent with NULL expiry rejected with HTTP 422');
+  assert(nullExpiryData.code === 'WARRANTY_RECORD_INCOMPLETE', 'Vector 7b: Returned error code WARRANTY_RECORD_INCOMPLETE');
+
+  // Vector 8: Accepted-then-delivered-after-expiry → granted window = exactly 3 days (M2 / FR-007.3)
+  const timingParentId = 'tkt-timing-parent-' + uuidv4().slice(0, 6);
+  const maxTktObj4 = db.prepare('SELECT COALESCE(MAX(ticket_number), 1000) as m FROM repair_tickets').get() as any;
+  const nextTkt4 = maxTktObj4.m + 1000;
+  const twoDayExpiry = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
+  db.prepare(`
+    INSERT INTO repair_tickets (id, ticket_number, store_id, customer_id, device_brand, device_model, reported_defects, release_otp, status, warranty_duration_days, warranty_expiry_date)
+    VALUES (?, ?, ?, ?, 'Apple', 'iPhone 12', 'Battery Replacement', '7777', 'DELIVERED', 60, ?)
+  `).run(timingParentId, nextTkt4, defaultStoreObj.id, defaultCustomerObj.id, twoDayExpiry);
+
+  // Intake accepted (parent still has 2 days remaining)
+  const timingIntakeRes = await fetch(`${baseUrl}/api/repair/tickets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_name: 'Timing Test Customer',
+      customer_phone: '01033334444',
+      device_brand: 'Apple',
+      device_model: 'iPhone 12',
+      reported_defects: 'Battery swelling under warranty',
+      parent_ticket_id: timingParentId,
+      is_warranty_repair: 1
+    })
+  });
+  assert(timingIntakeRes.status === 201, 'Vector 8a: Intake accepted when parent has 2 days remaining');
+  const timingData = (await timingIntakeRes.json()) as any;
+  const timingReworkId = timingData.ticket?.id || timingData.id;
+
+  // Simulate delivery AFTER parent expiry (advance past the 2-day window)
+  const pastExpiryDate = new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString();
+  db.prepare('UPDATE repair_tickets SET warranty_expiry_date = ? WHERE id = ?').run(pastExpiryDate, timingParentId);
+
+  await deliverRepairTicket(timingReworkId, { battery: true });
+  const timingReworkDb = db.prepare('SELECT warranty_duration_days, warranty_expiry_date FROM repair_tickets WHERE id = ?').get(timingReworkId) as any;
+  assert(timingReworkDb.warranty_duration_days === 3, 'Vector 8b: Delivered after parent expiry — granted exactly 3-day window per FR-007.3');
+  const timingExpiry = new Date(timingReworkDb.warranty_expiry_date);
+  const timingDiffDays = Math.round((timingExpiry.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+  assert(timingDiffDays >= 3 && timingDiffDays <= 4, 'Vector 8c: Granted window is 3 days from delivery date (not from parent expiry)');
+
+  // =========================================================================
+  // TEST 73: Warranty Void Authorization RBAC & Photo Evidence (DEC-033, DEC-042, FR-008)
+  // =========================================================================
+  console.log('\n[Test Suite 73: Warranty Void RBAC & Photo Evidence (DEC-033, DEC-042, FR-008)]');
+
+  const voidTechToken = signToken({ userId: 'u-tech-void', username: 'technician', role: 'Technician', storeId: 'store-default' });
+  const voidMgrToken = signToken({ userId: 'usr-admin', username: 'manager', role: 'Manager', storeId: 'store-default' });
+
+  // Vector 1: Technician void → HTTP 403
+  const techVoidRes = await fetch(`${baseUrl}/api/repair/tickets/${screenTicketId}/void-warranty`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${voidTechToken}` },
+    body: JSON.stringify({ reason: 'Physical damage detected' })
+  });
+  assert(techVoidRes.status === 403, 'Vector 1: Technician role rejected with HTTP 403 for warranty void');
+
+  // Vector 2: Missing photo evidence → HTTP 400 PHOTO_EVIDENCE_REQUIRED
+  const noPhotoRes = await fetch(`${baseUrl}/api/repair/tickets/${screenTicketId}/void-warranty`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${voidMgrToken}` },
+    body: JSON.stringify({ reason: 'Liquid damage' })
+  });
+  const noPhotoData = (await noPhotoRes.json()) as any;
+  assert(noPhotoRes.status === 400, 'Vector 2a: Missing evidence rejected with HTTP 400');
+  assert(noPhotoData.code === 'PHOTO_EVIDENCE_REQUIRED', 'Vector 2b: Error code PHOTO_EVIDENCE_REQUIRED');
+
+  // Vector 3: Wrong MIME type → HTTP 400 EVIDENCE_FORMAT_INVALID
+  const fakeGif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7');
+  const wrongMimeBase64 = `data:image/gif;base64,${fakeGif.toString('base64')}`;
+  const wrongMimeRes = await fetch(`${baseUrl}/api/repair/tickets/${screenTicketId}/void-warranty`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${voidMgrToken}` },
+    body: JSON.stringify({ reason: 'Cracked screen', evidence_base64: wrongMimeBase64 })
+  });
+  const wrongMimeData = (await wrongMimeRes.json()) as any;
+  assert(wrongMimeRes.status === 400, 'Vector 3a: Wrong MIME rejected with HTTP 400');
+  assert(wrongMimeData.code === 'EVIDENCE_FORMAT_INVALID', 'Vector 3b: Error code EVIDENCE_FORMAT_INVALID');
+
+  // Vector 4: Oversized evidence → HTTP 400 EVIDENCE_TOO_LARGE
+  const oversizedDir = path.resolve(process.cwd(), 'uploads/warranty-evidence');
+  if (!fs.existsSync(oversizedDir)) fs.mkdirSync(oversizedDir, { recursive: true });
+  const oversizedPath = path.join(oversizedDir, `oversized-test-${Date.now()}.jpg`);
+  fs.writeFileSync(oversizedPath, Buffer.alloc(5.1 * 1024 * 1024, 0xff));
+  const oversizedRes = await fetch(`${baseUrl}/api/repair/tickets/${screenTicketId}/void-warranty`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${voidMgrToken}` },
+    body: JSON.stringify({ reason: 'Impact damage', evidence_file: oversizedPath })
+  });
+  const oversizedData = (await oversizedRes.json()) as any;
+  assert(oversizedRes.status === 400, 'Vector 4a: Oversized evidence rejected with HTTP 400');
+  assert(oversizedData.code === 'EVIDENCE_TOO_LARGE', 'Vector 4b: Error code EVIDENCE_TOO_LARGE');
+  fs.unlinkSync(oversizedPath);
+
+  // Vector 5: Manager with valid JPEG evidence → success + SHA-256 + audit log
+  const validJpeg = Buffer.from('/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMCwsKCwsM', 'base64');
+  const validBase64 = `data:image/jpeg;base64,${validJpeg.toString('base64')}`;
+  const voidRes = await fetch(`${baseUrl}/api/repair/tickets/${screenTicketId}/void-warranty`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${voidMgrToken}` },
+    body: JSON.stringify({ reason: 'Customer physical damage — screen cracked by user', evidence_base64: validBase64 })
+  });
+  const voidData = (await voidRes.json()) as any;
+  assert(voidRes.status === 200, 'Vector 5a: Manager void-warranty succeeded with HTTP 200');
+  assert(voidData.warranty_status === 'VOIDED', 'Vector 5b: Ticket warranty_status set to VOIDED');
+  assert(voidData.evidence_hash && voidData.evidence_hash.length === 64, 'Vector 5c: SHA-256 hash recorded (64 chars)');
+  assert(voidData.approved_by === 'usr-admin', 'Vector 5d: Real manager actor ID recorded');
+
+  // Verify audit log
+  const voidAudit = db.prepare("SELECT * FROM audit_logs WHERE action = 'WARRANTY_VOIDED' AND entity_id = ? ORDER BY created_at DESC LIMIT 1").get(screenTicketId) as any;
+  assert(voidAudit !== undefined, 'Vector 5e: WARRANTY_VOIDED audit log entry exists');
+  assert(voidAudit.user_id === 'usr-admin', 'Vector 5f: Audit log records real manager user_id');
+
+  // =========================================================================
+  // TEST 74: Warranty Parts Operating Expense Tracking (DEC-031, FR-009)
+  // =========================================================================
+  console.log('\n[Test Suite 74: Warranty Parts Expense Tracking (DEC-031, FR-009)]');
+
+  // Create a warranty repair ticket with a consumed part
+  const warrantyPartTicketRes = await fetch(`${baseUrl}/api/repair/tickets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_name: 'Warranty Expense Test',
+      customer_phone: '01088887777',
+      device_brand: 'Apple',
+      device_model: 'iPhone 13',
+      reported_defects: 'Screen Replacement Under Warranty',
+      priority: 'NORMAL',
+      estimated_cost: 0,
+      is_warranty_repair: 1,
+      parent_ticket_id: battTicketId
+    })
+  });
+  const warrantyPartTicketData = (await warrantyPartTicketRes.json()) as any;
+  const warrantyPartTicketId = warrantyPartTicketData.ticket?.id || warrantyPartTicketData.id;
+
+  // Allocate a part to the ticket (simulate parts consumption)
+  const spareParts = db.prepare("SELECT id, purchase_price FROM items WHERE category = 'SCREEN' AND stock_quantity > 0 LIMIT 1").get() as any;
+  if (spareParts) {
+    db.prepare(`
+      INSERT INTO repair_consumed_parts (id, ticket_id, item_id, part_name, vendor_batch_code, cost_price, selling_price, is_reserved)
+      VALUES (?, ?, ?, 'Warranty Test Screen', 'WB-TEST', ?, ?, 0)
+    `).run(`rcp-${uuidv4().substring(0, 8)}`, warrantyPartTicketId, spareParts.id, spareParts.purchase_price || 500, spareParts.purchase_price || 500);
+
+    // Deliver the ticket → triggers warranty expense posting
+    await deliverRepairTicket(warrantyPartTicketId, { screen: true });
+
+    // Verify warranty_cost_amount recorded
+    const wpTicket = db.prepare('SELECT warranty_cost_amount FROM repair_tickets WHERE id = ?').get(warrantyPartTicketId) as any;
+    assert(wpTicket.warranty_cost_amount > 0, `Vector 1a: warranty_cost_amount recorded (${wpTicket.warranty_cost_amount})`);
+
+    // Verify journal entry: debit acc-5040, credit acc-1040
+    const jeEntry = db.prepare("SELECT * FROM journal_entries WHERE reference_id = ? AND description LIKE '%Warranty%' ORDER BY created_at DESC LIMIT 1").get(warrantyPartTicketId) as any;
+    assert(jeEntry !== undefined, 'Vector 1b: Journal entry created for warranty parts expense');
+
+    const debitLine = db.prepare("SELECT * FROM journal_entry_lines WHERE entry_id = ? AND account_id = 'acc-5040'").get(jeEntry.id) as any;
+    const creditLine = db.prepare("SELECT * FROM journal_entry_lines WHERE entry_id = ? AND account_id = 'acc-1040'").get(jeEntry.id) as any;
+    assert(debitLine !== undefined, 'Vector 1c: Debit line to acc-5040 (Warranty Parts Expense) exists');
+    assert(creditLine !== undefined, 'Vector 1d: Credit line to acc-1040 (Spare Parts Inventory) exists');
+    assert(debitLine.debit === creditLine.credit, `Vector 1e: Double-entry balanced (debit=${debitLine.debit}, credit=${creditLine.credit})`);
+
+    // Verify customer invoice = 0 piastres
+    const invEntry = db.prepare("SELECT * FROM journal_entries WHERE reference_id = ? AND description LIKE '%Invoice%' ORDER BY created_at DESC LIMIT 1").get(warrantyPartTicketId) as any;
+    if (invEntry) {
+      const invTotal = db.prepare("SELECT SUM(debit) as total FROM journal_entry_lines WHERE entry_id = ? AND account_id LIKE '%1001%'").get(invEntry.id) as any;
+      assert(!invTotal || invTotal.total === 0, 'Vector 1f: Customer invoice total = 0 piastres for warranty coverage');
+    } else {
+      // No separate invoice entry — warranty ticket has no customer charge
+      assert(wpTicket.warranty_cost_amount > 0, 'Vector 1f: Warranty cost absorbed (no customer invoice)');
+    }
+  } else {
+    console.log('  ⚠ Skipping Part 1 vectors: no SCREEN items in inventory');
+  }
 
   // Close ephemeral test server
   testServer.close();

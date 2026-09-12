@@ -10,6 +10,7 @@ import { ReceiptService } from '../../services/receipt.service';
 import { logAudit } from '../../services/audit.service';
 import { RepairRepository } from '../../repositories/repair.repository';
 import { SmartPricingEngine } from '../../services/smart-pricing.service';
+import { requireAuth, requireRole, AuthenticatedRequest } from '../../middleware/auth';
 import {
   validateStatusTransition,
   checkSlaEscalations,
@@ -105,17 +106,21 @@ repairRouter.post('/tickets', (req: Request, res: Response) => {
     }
     isWarranty = 1;
 
-    // Enforce warranty expiry rejection including 3-day grace (DEC-041, FR-007.4)
-    if (parentTicket.warranty_expiry_date) {
-      const parentExpiryMs = new Date(parentTicket.warranty_expiry_date).getTime();
-      const graceMs = 3 * 24 * 60 * 60 * 1000;
-      if (Date.now() > parentExpiryMs + graceMs) {
-        return res.status(400).json({
-          error: 'WARRANTY_EXPIRED',
-          message: 'Original warranty certificate and 3-day grace period have expired',
-          code: 'WARRANTY_EXPIRED'
-        });
-      }
+    // Enforce warranty claim acceptance gate (DEC-041, FR-007.2): reject after expiry, HTTP 422
+    if (!parentTicket.warranty_expiry_date) {
+      return res.status(422).json({
+        error: 'WARRANTY_RECORD_INCOMPLETE',
+        message: 'Parent ticket has no warranty expiry date — warranty record incomplete',
+        code: 'WARRANTY_RECORD_INCOMPLETE'
+      });
+    }
+    const parentExpiryMs = new Date(parentTicket.warranty_expiry_date).getTime();
+    if (Date.now() > parentExpiryMs) {
+      return res.status(422).json({
+        error: 'WARRANTY_EXPIRED',
+        message: 'Warranty claim rejected: original expiry date has passed',
+        code: 'WARRANTY_EXPIRED'
+      });
     }
   }
 
@@ -274,6 +279,55 @@ repairRouter.patch(['/tickets/:id/status', '/:id/status'], (req: Request, res: R
           warranty_expiry_date = ?
       WHERE id = ?
     `).run(warranty.durationDays, warranty.expiryDate, ticket.id);
+
+    // FR-009: Warranty Parts Expense Tracking (DEC-031)
+    if (ticket.is_warranty_repair) {
+      // Sum cost of parts consumed on this ticket
+      const partsCost = db.prepare(`
+        SELECT COALESCE(SUM(COALESCE(i.cost_price, 0) * cp.quantity), 0) as total_cost
+        FROM repair_consumed_parts cp
+        LEFT JOIN items i ON cp.item_id = i.id
+        WHERE cp.ticket_id = ?
+      `).get(ticket.id) as { total_cost: number };
+
+      const costAmount = partsCost.total_cost || 0;
+
+      if (costAmount > 0) {
+        // Record warranty cost on ticket
+        db.prepare('UPDATE repair_tickets SET warranty_cost_amount = ? WHERE id = ?').run(costAmount, ticket.id);
+
+        // Post journal entry: debit acc-5040 (Warranty Expense), credit acc-1040 (Spare Parts Inventory)
+        const maxEntry = db.prepare('SELECT COALESCE(MAX(entry_number), 1000) as maxNum FROM journal_entries').get() as { maxNum: number };
+        const entryNumber = maxEntry.maxNum + 1;
+        const entryId = `je-${uuidv4().substring(0, 8)}`;
+        const actorId = (req as any).user?.userId || 'system';
+
+        db.prepare(`
+          INSERT INTO journal_entries (id, entry_number, description, reference_type, reference_id, created_by_user_id, status)
+          VALUES (?, ?, ?, 'REPAIR_TICKET', ?, ?, 'POSTED')
+        `).run(entryId, entryNumber, `Warranty parts expense for ticket ${ticket.ticket_number}`, ticket.id, actorId);
+
+        // Debit: acc-5040 (Warranty Parts Expense)
+        db.prepare(`
+          INSERT INTO journal_entry_lines (id, entry_id, account_id, debit, credit, memo)
+          VALUES (?, ?, 'acc-5040', ?, 0, ?)
+        `).run(`jl-${uuidv4().substring(0, 8)}`, entryId, costAmount, `Warranty parts: ${ticket.ticket_number}`);
+
+        // Credit: acc-1040 (Spare Parts Inventory)
+        db.prepare(`
+          INSERT INTO journal_entry_lines (id, entry_id, account_id, debit, credit, memo)
+          VALUES (?, ?, 'acc-1040', 0, ?, ?)
+        `).run(`jl-${uuidv4().substring(0, 8)}`, entryId, costAmount, `Inventory reduction: ${ticket.ticket_number}`);
+
+        logAudit({
+          action: 'WARRANTY_EXPENSE_POSTED',
+          entityType: 'REPAIR_TICKET',
+          entityId: ticket.id,
+          newValues: { costAmount, entryId, debit: 'acc-5040', credit: 'acc-1040' },
+          ipAddress: req.ip
+        });
+      }
+    }
   } else if (upperStatus === 'CANCELLED') {
     releaseReservedPartsForTicket(ticket.id);
   }
@@ -1249,3 +1303,116 @@ repairRouter.post('/quote-calculator', (req: Request, res: Response) => {
 
   res.json(quote);
 });
+
+// ==========================================
+// 23. Void Warranty — RBAC + Mandatory Photo Evidence (DEC-033, DEC-042, FR-008)
+// ==========================================
+const VOID_EVIDENCE_DIR = path.resolve(process.cwd(), 'uploads/warranty-evidence');
+const ALLOWED_MIME = ['image/jpeg', 'image/png'];
+const MAX_EVIDENCE_SIZE = 5 * 1024 * 1024; // 5MB
+
+repairRouter.post('/tickets/:id/void-warranty', requireAuth, requireRole(['Manager', 'Admin']), (req: AuthenticatedRequest, res: Response) => {
+  const { reason, evidence_file, evidence_base64 } = req.body;
+  const ticketId = req.params.id;
+
+  if (!reason || !String(reason).trim()) {
+    return res.status(400).json({ error: 'reason is required', code: 'PHOTO_EVIDENCE_REQUIRED' });
+  }
+
+  const ticket = db.prepare('SELECT * FROM repair_tickets WHERE id = ? AND deleted_at IS NULL').get(ticketId) as any;
+  if (!ticket) {
+    return res.status(404).json({ error: 'Ticket not found', code: 'TICKET_NOT_FOUND' });
+  }
+
+  // Determine evidence source: base64 inline or file path
+  let evidenceBuffer: Buffer;
+  let ext = 'jpg';
+
+  if (evidence_base64) {
+    const match = evidence_base64.match(/^data:image\/(\w+);base64,(.+)$/);
+    if (!match) {
+      return res.status(400).json({ error: 'Invalid base64 image data', code: 'EVIDENCE_FORMAT_INVALID' });
+    }
+    ext = match[1].toLowerCase();
+    if (ext === 'jpg') ext = 'jpeg';
+    const mime = `image/${ext}`;
+    if (!ALLOWED_MIME.includes(mime)) {
+      return res.status(400).json({ error: `MIME type ${mime} not allowed. Allowed: ${ALLOWED_MIME.join(', ')}`, code: 'EVIDENCE_FORMAT_INVALID' });
+    }
+    evidenceBuffer = Buffer.from(match[2], 'base64');
+  } else if (evidence_file) {
+    if (!fs.existsSync(evidence_file)) {
+      return res.status(400).json({ error: 'Evidence file not found on disk', code: 'PHOTO_EVIDENCE_REQUIRED' });
+    }
+    evidenceBuffer = fs.readFileSync(evidence_file);
+    ext = path.extname(evidence_file).slice(1) || 'jpg';
+    if (ext === 'jpg') ext = 'jpeg';
+    const mime = `image/${ext}`;
+    if (!ALLOWED_MIME.includes(mime)) {
+      return res.status(400).json({ error: `MIME type ${mime} not allowed. Allowed: ${ALLOWED_MIME.join(', ')}`, code: 'EVIDENCE_FORMAT_INVALID' });
+    }
+  } else {
+    return res.status(400).json({ error: 'Missing evidence_file or evidence_base64', code: 'PHOTO_EVIDENCE_REQUIRED' });
+  }
+
+  if (evidenceBuffer.length > MAX_EVIDENCE_SIZE) {
+    return res.status(400).json({ error: `Evidence size ${evidenceBuffer.length} exceeds 5MB limit`, code: 'EVIDENCE_TOO_LARGE' });
+  }
+
+  // Save evidence file
+  if (!fs.existsSync(VOID_EVIDENCE_DIR)) {
+    fs.mkdirSync(VOID_EVIDENCE_DIR, { recursive: true });
+  }
+  const timestamp = Date.now();
+  const filename = `${ticketId}-${timestamp}.${ext}`;
+  const filepath = path.join(VOID_EVIDENCE_DIR, filename);
+  fs.writeFileSync(filepath, evidenceBuffer);
+
+  const evidenceHash = crypto.createHash('sha256').update(evidenceBuffer).digest('hex');
+  const managerId = req.user!.userId;
+
+  // Update ticket
+  db.prepare(`
+    UPDATE repair_tickets
+    SET warranty_status = 'VOIDED',
+        warranty_void_reason = ?,
+        warranty_void_evidence_path = ?,
+        warranty_void_evidence_hash = ?,
+        warranty_void_approved_by = ?,
+        warranty_void_approved_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(reason, `warranty-evidence/${filename}`, evidenceHash, managerId, ticketId);
+
+  // Synchronous audit log
+  logAudit({
+    action: 'WARRANTY_VOIDED',
+    entityType: 'REPAIR_TICKET',
+    entityId: ticketId,
+    userId: managerId,
+    newValues: {
+      reason,
+      evidencePath: `warranty-evidence/${filename}`,
+      evidenceHash,
+      approvedBy: managerId
+    },
+    ipAddress: req.ip
+  });
+
+  res.json({
+    success: true,
+    ticket_id: ticketId,
+    warranty_status: 'VOIDED',
+    evidence_hash: evidenceHash,
+    approved_by: managerId
+  });
+});
+
+// ==========================================
+// 24. Warranty Parts Expense Tracking (DEC-031, FR-009) — hook into DELIVERED transition
+// ==========================================
+// This logic is integrated into the status transition handler above (line ~267-280).
+// When status = DELIVERED and is_warranty_repair = 1:
+//   1. Record warranty_cost_amount from consumed parts
+//   2. Post journal entry: debit acc-5040, credit acc-1040
+//   3. Customer invoice total remains 0 piastres
+// See the DELIVERED branch in the PATCH /tickets/:id/status handler.
