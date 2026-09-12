@@ -1,4 +1,4 @@
-﻿# Feature Specification: Warranty Governance, Voiding Authorization & Defective Parts Lifecycle
+# Feature Specification: Warranty Governance, Voiding Authorization & Defective Parts Lifecycle
 
 **Document Version:** 1.0.0  
 **Status:** Draft / Pending Owner Review  
@@ -44,12 +44,13 @@ In the current codebase:
    - Voiding customer repair warranty requires mandatory JWT role `MANAGER` or `ADMIN`.
    - Dedicated endpoint `POST /api/repair/tickets/:id/void-warranty`.
    - Requires attached photographic evidence stored in dedicated directory (`server/uploads/warranty-evidence/`) with SHA-256 integrity hash recorded in SQLite (No raw BLOBs in DB to keep WAL light and shift-close snapshots sub-second per Constitution §III.3).
+   - Dedicated external durability: `server/uploads/` joins automated external USB mirroring (`USB_BACKUP_PATH/uploads`) per Option (a).
    - Synchronous audit logging with action `WARRANTY_VOIDED` and real manager actor ID.
 3. **Warranty Parts Operating Expense Accounting (`DEC-031` / `FR-009`):**
-   - Parts consumed on warranty repairs debit `WARRANTY EXPENSE` account (`COA-5004`) and credit `INVENTORY ASSET` (`COA-1004`).
-   - Line-item tracking in repair ticket and financial ledger.
+   - Parts consumed on warranty repairs debit `acc-5040` (code `5040`, `Warranty Parts Expense`, EXPENSE) and credit `acc-1040` (code `1040`, `Spare Parts Inventory`, ASSET).
+   - Line-item tracking in repair ticket and financial ledger. Customer invoice total is 0 piastres.
 4. **Supplier Rejected Returns to Defective Scrap (`DEC-035` / `FR-010`):**
-   - When a supplier rejects an RTV batch (`POST /api/procurement/rtv/:id/reject`), item state transitions to `DEFECTIVE_SCRAP`.
+   - Create RTV rejection endpoint `POST /api/procurement/rtv/:id/reject` in `procurement.router.ts`, transitioning item state to `DEFECTIVE_SCRAP`.
    - Scrap liquidation / salvage sale requires Manager authorization.
 5. **Test-Run Backup Suppression & Catalogue Hygiene (`NFR-004`):**
    - Isolate test backup creations to ephemeral scratch directory (`server/backups/test_scratch/`) and clean up upon runner completion, preserving clean production catalogue.
@@ -64,23 +65,25 @@ In the current codebase:
 ## 3. Functional Requirements (The "WHAT")
 
 ### FR-007: Warranty Duration Matrix, Window Inheritance & Grace Policy (DEC-041, DEC-032)
-- **FR-007.1:** When a repair ticket is marked `READY` or `DELIVERED`, calculate warranty expiry based on primary installed part category:
-  - `SCREEN` / `DISPLAY`: 90 days.
-  - `BATTERY`: 60 days.
-  - `MOTHERBOARD` / `PORT` / `OTHER`: 30 days.
-  - Baseline default if unclassified: 30 days.
-- **FR-007.2:** When a warranty return repair is opened (`parent_ticket_id` set):
-  - Warranty window DOES NOT reset to full duration.
-  - Remaining warranty = `original_expiry_date - current_date`.
-  - If `remaining_days < 3`, enforce minimum 3-day testing grace period (`current_date + 3 days`).
-- **FR-007.3:** If `current_date > original_expiry_date + 3 days grace`, reject warranty intake as `WARRANTY_EXPIRED`.
+- **FR-007.1 (Configurable Duration Matrix):** Baseline warranty durations are governed by configurable category settings in the `settings` table with strict defaults per DEC-041:
+  - Screens / Displays (`SCREEN`): 90 days
+  - Batteries (`BATTERY`): 60 days
+  - Motherboard / Other Repairs / Labor (`MOTHERBOARD`, `LABOR`, `OTHER`): 30 days
+  - Unclassified fallback: 30 days
+- **FR-007.2 (Window Inheritance Protocol):** When a warranty rework repair is opened (`is_warranty_repair = 1`, referencing `parent_ticket_id`):
+  - Replaced components strictly inherit the remaining duration of the original ticket's warranty certificate without renewal (DEC-032).
+  - The warranty window DOES NOT reset to full category duration.
+  - Remaining warranty days = `ceiling((parent_warranty_expiry - current_timestamp) / 86400)`.
+- **FR-007.3 (Testing Grace Policy):** If remaining warranty duration is less than 3 days upon delivery of the replacement component, a minimum 3-day testing grace period applies from the delivery timestamp (`current_timestamp + 3 days`) per DEC-041.
+- **FR-007.4 (Expired Intake Rejection):** If a customer attempts warranty intake after the original warranty expiry plus the 3-day grace period has elapsed (`current_timestamp > original_expiry_date + 3 days grace`), the intake request MUST be rejected with `HTTP 400 Bad Request` (`WARRANTY_EXPIRED`).
 
 ### FR-008: Warranty Voiding RBAC & Mandatory Photographic Evidence (DEC-033, DEC-042)
 - **FR-008.1:** Dedicated endpoint: `POST /api/repair/tickets/:id/void-warranty`.
 - **FR-008.2:** Role Gate: Only `MANAGER` or `ADMIN` may execute this endpoint. Technician requests rejected with `HTTP 403 Forbidden` (`WARRANTY_VOID_FORBIDDEN`).
-- **FR-008.3:** Evidence Gate: Request must supply `reason` (text) and `evidence_file` (or base64 image data). If missing, return `HTTP 400 Bad Request` (`PHOTO_EVIDENCE_REQUIRED`).
-- **FR-008.4:** Storage Contract:
+- **FR-008.3 (Mandatory Photo Evidence & Role Gate):** Voiding a repair warranty on grounds of customer physical damage or liquid ingress strictly requires two conditions: (1) mandatory photographic evidence uploaded to the ticket inspection record (rejected with `HTTP 400 Bad Request` `PHOTO_EVIDENCE_REQUIRED` if missing), and (2) explicit authentication and approval by a `MANAGER` or `ADMIN` role (DEC-033, rejected with `HTTP 403 Forbidden` `WARRANTY_VOID_FORBIDDEN` for non-manager roles). File is stored on the filesystem (`server/uploads/warranty-evidence/`) with SHA-256 integrity hash recorded in SQLite (DEC-042).
+- **FR-008.4 (Storage & Mirroring Contract):**
   - File saved to: `server/uploads/warranty-evidence/<ticket-id>-<timestamp>.<ext>`.
+  - External Persistence (Option a): The `server/uploads/` directory joins automated external USB mirroring (`USB_BACKUP_PATH/uploads`) during backup operations so warranty forensic evidence survives host drive failure.
   - Database updates in `repair_tickets`:
     - `warranty_status = 'VOIDED'`
     - `warranty_void_reason = ?`
@@ -91,11 +94,11 @@ In the current codebase:
 - **FR-008.5:** Synchronous audit log emitted: `WARRANTY_VOIDED` with real manager actor ID, reason, file path, and file hash.
 
 ### FR-009: Warranty Parts Operating Expense Tracking (DEC-031)
-- **FR-009.1:** When parts are allocated or consumed on a warranty ticket (`is_warranty = 1`), cost price is recorded as `warranty_cost_amount`.
+- **FR-009.1:** When parts are allocated or consumed on a warranty ticket (`is_warranty_repair = 1`), cost price is recorded as `warranty_cost_amount`.
 - **FR-009.2:** Automatic journal entry lines generated:
-  - Debit: `WARRANTY_EXPENSE` (`COA-5004`)
-  - Credit: `INVENTORY_ASSET` (`COA-1004`)
-- **FR-009.3:** Part cost is explicitly excluded from customer invoice total (`total = 0 EGP` for warranty coverage) while preserving financial operating expense ledger truth.
+  - Debit: `acc-5040` (code `5040`, `مصروفات قطع غيار الضمان (Warranty Parts Expense)`, type `EXPENSE`)
+  - Credit: `acc-1040` (code `1040`, `مخزون قطع الغيار والشاشات (Spare Parts Inventory)`, type `ASSET`)
+- **FR-009.3:** Part cost is explicitly excluded from customer invoice total (`total = 0 piastres` for warranty coverage) while preserving financial operating expense ledger truth.
 
 ### FR-010: Rejected Supplier Returns to DEFECTIVE_SCRAP & Liquidation Gate (DEC-035)
 - **FR-010.1:** In `POST /api/procurement/rtv/:id/reject`, rejected items are flagged with `status = 'DEFECTIVE_SCRAP'`.
