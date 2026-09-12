@@ -1,14 +1,14 @@
 # SpecKit SDD Progress Tracker
 
-**Last Updated:** 2026-09-12T06:00:00+03:00  
+**Last Updated:** 2026-09-12T14:30:00+03:00  
 **SpecKit CLI Version:** specify 1.0.6  
-**Status:** Phase 1 (Deep Discovery) CLOSED | Phase 2 (Foundation Setup) COMPLETE | Phase 3 (Feature 001 COMPLETE, Feature 002 Batch 1 EXECUTED)
+**Status:** Phase 1 (Deep Discovery) CLOSED | Phase 2 (Foundation Setup) COMPLETE | Phase 3 (Feature 001 COMPLETE, Feature 002 COMPLETE, Feature 003 Batch 2 EXECUTED)
 
 ---
 
 ## 1. Current Phase & Sub-Step
 - **Phase:** Phase 3: Implementation & Specification Planning (Active)
-- **Sub-Step:** Step 3.4 — Feature 002 (Financial Governance & Operational Continuity) Batch 1 EXECUTED (+25 tests: 190 $\to$ 215, 1 risk retired: RISK-008, 5 adversarial vulnerabilities remediated; awaiting Owner Checkpoint 1 Gate) | TASK-2.1 & 2.2 Complete
+- **Sub-Step:** Step 3.6 — Feature 003 (Warranty Governance & Defective Parts Lifecycle) Batch 2 COMPLETE (+25 tests: 285 → 310, 0 failures; awaiting Brief 2 Gate). TASK-3.3 (Void-Warranty RBAC) & TASK-3.4 (Warranty Parts Expense) delivered.
 - **Phase 2 Closure State:** 100% Complete & Signed Off (All 7 Foundation Artifacts Ratified by Owner)
 
 ### 1.1 Foundation Complete Declaration (Phase 2 Ratified Artifacts)
@@ -52,6 +52,31 @@
 > 2. Test-run backup suppression — suppress or clean up automated test snapshots to avoid test-run backup accumulation (e.g. 84 backups in test runs).
 > 3. Protect `/api/docs*` behind workstation token gate.
 > 4. Audit table structural unification (`audit_log` vs `audit_logs`) — scheduled for maintenance refactor.
+> 5. **[Feature 003 Adversarial] Base64 regex hardening** — Current regex `^data:image\/(jpeg|png);base64,` is functional but could be tightened to reject malformed data URIs. Low risk; deferred to maintenance refactor. (Adversarial Vector 4)
+> 6. **[Feature 003 Adversarial] Account existence check** — Journal entry creation assumes `acc-5040` and `acc-1040` exist (seeded by migration 014). No runtime validation of account existence before INSERT. Low risk; accounts are seeded at startup. (Adversarial Vector 6)
+> 7. **[Feature 003 Adversarial] Evidence file path in logAudit** — `newValues.evidencePath` logged in audit could leak server filesystem paths. Consider logging only the SHA-256 hash instead. Low risk; internal audit log only. (Adversarial Vector 7)
+
+### 1.4 Feature 003 Warranty Governance & Defective Parts Lifecycle
+- **Feature:** `specs/003-warranty-governance-lifecycle` (Warranty Governance, Voiding Authorization & Defective Parts Lifecycle)
+- **Branch:** `feature/003-warranty-governance-lifecycle`
+- **Automated Tests Delivered:** +25 tests (Baseline elevated from 285 to 310 passing tests across 76 suites, 0 failures).
+- **Tasks Delivered:**
+  1. `TASK-3.1`: Test-Run Backup Isolation (`NFR-004`, `DEC-045`, Test Suite 76).
+  2. `TASK-3.2`: Warranty Duration Matrix & Window Inheritance (`DEC-041`, `DEC-032`, Test Suite 72).
+  3. `TASK-3.3`: Void-Warranty RBAC & Photo Evidence (`DEC-033`, `DEC-042`, `FR-008`, Test Suite 73).
+  4. `TASK-3.4`: Warranty Parts Expense Tracking (`DEC-031`, `FR-009`, Test Suite 74).
+- **Commits:** `21c24f1` (Batch 1), `b8d42b4` (W1-W7 mandates), `4163484` (FR-007/FR-008.3 rewrites), `f176498` (Batch 2 code), `e5f8917` (adversarial fixes), `75376b9` (Suite 74 rewrite + bugfixes)
+- **Decisions Ratified:**
+  1. `DEC-045`: Warranty evidence uploads directory included in USB disaster-recovery mirroring.
+- **Bug Fixes:**
+  1. `.jpg` → `jpeg` MIME normalization in void-warranty handler (both base64 and file paths).
+  2. `VOID_EVIDENCE_DIR` double `server/` prefix fixed.
+  3. Parts cost query: `cp.cost_price` used directly (table has no `quantity` column).
+  4. FK constraint on `journal_entries.created_by_user_id` — SuperAdmin fallback when no auth.
+  5. `warranty_cost_amount` UPDATE separated from journal entry transaction (atomicity fix).
+- **Loop Incidents:** #1 (byte-identical re-submission), #2 (FR-007.4 loophole preserved).
+- **R4 Violation:** #1 (TASK-3.1+3.2 bundling misapplied atomic-chain exception).
+- **Status:** Batch 2 COMPLETE, awaiting Brief 2 Gate approval.
 
 ---
 
@@ -112,6 +137,7 @@
 | **DEC-042** | Warranty Voiding Evidence | Warranty voiding on grounds of physical damage or liquid ingress requires attached photographic evidence AND Manager approval with synchronous audit logging. | Owner Decision DEC-042 | 2026-09-12 |
 | **DEC-043** | LAN Perimeter & Seed Token | Authorizes `::1` / `::ffff:127.0.0.1` (IPv6 loopback) for Windows/Node24/Electron host; constrains LAN subnets strictly to `192.168.1.0/24` and `10.0.0.0/8` per ADR-020; mandates crypto-random seed value for `master-pos-station-token`. | `server/src/middleware/subnet-guard.ts#L4-L20`, `server/src/db/seed.ts#L18-L30` | 2026-09-12 |
 | **DEC-044** | Shift-Close Backup Blocking | Backup failure during shift close BLOCKS the close (HTTP 500) + SHIFT_CLOSE_BACKUP_FAILED audit event + red banner. Conservative-by-design: with no UPS (DEC-027), an unclosed shift beats an unprotected night. | Owner Ratification DEC-044 | 2026-09-12 |
+| **DEC-045** | Warranty Evidence USB Mirroring | Warranty evidence uploads directory (`uploads/warranty-evidence/`) included in USB disaster-recovery mirroring (DEC-003 scope expansion). | Owner Ratification DEC-045 | 2026-09-12 |
 
 ---
 
