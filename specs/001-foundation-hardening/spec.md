@@ -1,7 +1,7 @@
 # Feature Specification: Foundation Hardening (Ratified Invariants Enforcement)
 
 **Document Version:** 1.0.0  
-**Status:** Draft / Pending Owner Review  
+**Status:** Completed & Ratified  
 **Specification Path:** `specs/001-foundation-hardening/spec.md`  
 **Target Milestone:** Phase 3 — Milestone 1 (Foundation Hardening)  
 **Governing Architecture:** Constitution v1.0.1 | DEC-001, DEC-020, DEC-027, DEC-029, DEC-036 | ADR-001, ADR-020, ADR-036  

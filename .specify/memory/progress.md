@@ -1,14 +1,14 @@
 # SpecKit SDD Progress Tracker
 
-**Last Updated:** 2026-09-12T05:45:00+03:00  
+**Last Updated:** 2026-09-12T05:55:00+03:00  
 **SpecKit CLI Version:** specify 1.0.6  
-**Status:** Phase 1 (Deep Discovery) CLOSED | Phase 2 (Foundation Setup) COMPLETE | Phase 3 (Implementation / Specification) ACTIVE
+**Status:** Phase 1 (Deep Discovery) CLOSED | Phase 2 (Foundation Setup) COMPLETE | Phase 3 (Feature 001 COMPLETE, Feature 002 PROPOSED)
 
 ---
 
 ## 1. Current Phase & Sub-Step
 - **Phase:** Phase 3: Implementation & Specification Planning (Active)
-- **Sub-Step:** Step 3.2 — Batch 1 & Batch 2 Hardening Executed (TASK-1.1 through TASK-1.5 Verified, 190 Passing Tests) | Ready for Owner Gate
+- **Sub-Step:** Step 3.3 — Feature 001 (Foundation Hardening) COMPLETE (+31 tests: 159 $\to$ 190, 3 risks retired: RISK-007, RISK-010, RISK-011, branch merged into main) | Feature 002 Proposed
 - **Phase 2 Closure State:** 100% Complete & Signed Off (All 7 Foundation Artifacts Ratified by Owner)
 
 ### 1.1 Foundation Complete Declaration (Phase 2 Ratified Artifacts)
@@ -20,12 +20,24 @@
 | **Risk Register** | `.specify/memory/risks.md` | 11 Tracked Risks (`RISK-001`..`011`: 1 Open, 7 Mitigating, 3 Mitigated [`RISK-007`, `RISK-010`, `RISK-011`]) | Active Living Document | 2026-09-12 |
 | **Domain Glossary** | `.specify/memory/glossary.md` | v1.0.0 (12 Ratified Domain Terms + Invalid Usages) | Ratified Living Document | 2026-09-12 |
 | **Repository README** | `README.md` | Architecture Blueprint, Setup, Baseline (159/66), Honest Gaps | Ratified Master Overview | 2026-09-12 |
-| **Contributing Guide** | `CONTRIBUTING.md` | SpecKit SDD Lifecycle, Adversarial Protocol, Dual Naming | Ratified Contributor Standard | 2026-09-12 |
+| **Contributing Guide** | `CONTRIBUTING.md` | SpecKit SDD Lifecycle, Adversarial Protocol, Dual Naming, Atomic Chain Exception | Ratified Contributor Standard | 2026-09-12 |
 | **Environment Template** | `.env.example` | Operational Config, Secret Placeholders, Settings Distinction | Ratified Environment Spec | 2026-09-12 |
 
+### 1.2 Feature 001 Hardening Milestone Completion
+- **Feature:** `specs/001-foundation-hardening` (Ratified Invariants Enforcement)
+- **Branch:** `feature/001-foundation-hardening` merged into `main` (`--no-ff`)
+- **Automated Tests Delivered:** +31 tests (Baseline elevated from 159 to 190 passing tests across 68 suites).
+- **Risks Retired to Mitigated:**
+  1. `RISK-007`: SQLite Durability via `PRAGMA synchronous = FULL` (Test Suite 52).
+  2. `RISK-011`: Subnet Guard Default-DENY & Device Token Gate (Test Suite 67).
+  3. `RISK-010`: Logical Spare Part Reservation & POS Contention Defense (Test Suite 68).
+- **As-Built Inventory Discovered:** `GOOGLE_REVIEW_FOLLOWUP` notification type identified in `whatsapp.service.ts` and `CrmView.tsx`.
+
 > [!NOTE]
-> **Future Candidate (Recorded per Owner Gate C — NOT in Hardening Scope):**  
-> `AUTH_SECRET` vs `JWT_SECRET` dual-path — possible consolidation / enforce no-fallback in production. Requires separate future owner gate.
+> **Future Candidates & Operational Debt (Recorded per Owner Guidance — NOT in Active Scope):**  
+> 1. `AUTH_SECRET` vs `JWT_SECRET` dual-path — possible consolidation / enforce no-fallback in production. Requires separate future owner gate.
+> 2. Test-run backup suppression — suppress or clean up automated test snapshots to avoid test-run backup accumulation (e.g. 62 backups in test runs).
+> 3. Protect `/api/docs*` behind workstation token gate.
 
 ---
 
