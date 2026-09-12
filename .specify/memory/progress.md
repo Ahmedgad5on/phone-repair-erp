@@ -8,7 +8,7 @@
 
 ## 1. Current Phase & Sub-Step
 - **Phase:** Phase 3: Implementation & Specification Planning (Active)
-- **Sub-Step:** Step 3.4 — Feature 002 (Financial Governance & Operational Continuity) Batch 1 EXECUTED (+18 tests: 190 $\to$ 208, 1 risk retired: RISK-008; awaiting Owner Checkpoint 1 Gate) | TASK-2.1 & 2.2 Complete
+- **Sub-Step:** Step 3.4 — Feature 002 (Financial Governance & Operational Continuity) Batch 1 EXECUTED (+25 tests: 190 $\to$ 215, 1 risk retired: RISK-008, 5 adversarial vulnerabilities remediated; awaiting Owner Checkpoint 1 Gate) | TASK-2.1 & 2.2 Complete
 - **Phase 2 Closure State:** 100% Complete & Signed Off (All 7 Foundation Artifacts Ratified by Owner)
 
 ### 1.1 Foundation Complete Declaration (Phase 2 Ratified Artifacts)
