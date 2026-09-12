@@ -302,25 +302,29 @@ repairRouter.patch(['/tickets/:id/status', '/:id/status'], (req: Request, res: R
         const entryId = `je-${uuidv4().substring(0, 8)}`;
         const actorId = (req as any).user?.userId || 'system';
 
-        db.prepare(`
-          INSERT INTO journal_entries (id, entry_number, description, reference_type, reference_id, created_by_user_id, status)
-          VALUES (?, ?, ?, 'REPAIR_TICKET', ?, ?, 'POSTED')
-        `).run(entryId, entryNumber, `Warranty parts expense for ticket ${ticket.ticket_number}`, ticket.id, actorId);
+        const expenseTx = db.transaction(() => {
+          db.prepare(`
+            INSERT INTO journal_entries (id, entry_number, description, reference_type, reference_id, created_by_user_id, status)
+            VALUES (?, ?, ?, 'REPAIR_TICKET', ?, ?, 'POSTED')
+          `).run(entryId, entryNumber, `Warranty parts expense for ticket ${ticket.ticket_number}`, ticket.id, actorId);
 
-        // Debit: acc-5040 (Warranty Parts Expense)
-        db.prepare(`
-          INSERT INTO journal_entry_lines (id, entry_id, account_id, debit, credit, memo)
-          VALUES (?, ?, 'acc-5040', ?, 0, ?)
-        `).run(`jl-${uuidv4().substring(0, 8)}`, entryId, costAmount, `Warranty parts: ${ticket.ticket_number}`);
+          // Debit: acc-5040 (Warranty Parts Expense)
+          db.prepare(`
+            INSERT INTO journal_entry_lines (id, entry_id, account_id, debit, credit, memo)
+            VALUES (?, ?, 'acc-5040', ?, 0, ?)
+          `).run(`jl-${uuidv4().substring(0, 8)}`, entryId, costAmount, `Warranty parts: ${ticket.ticket_number}`);
 
-        // Credit: acc-1040 (Spare Parts Inventory)
-        db.prepare(`
-          INSERT INTO journal_entry_lines (id, entry_id, account_id, debit, credit, memo)
-          VALUES (?, ?, 'acc-1040', 0, ?, ?)
-        `).run(`jl-${uuidv4().substring(0, 8)}`, entryId, costAmount, `Inventory reduction: ${ticket.ticket_number}`);
+          // Credit: acc-1040 (Spare Parts Inventory)
+          db.prepare(`
+            INSERT INTO journal_entry_lines (id, entry_id, account_id, debit, credit, memo)
+            VALUES (?, ?, 'acc-1040', 0, ?, ?)
+          `).run(`jl-${uuidv4().substring(0, 8)}`, entryId, costAmount, `Inventory reduction: ${ticket.ticket_number}`);
+        });
+        expenseTx();
 
         logAudit({
           action: 'WARRANTY_EXPENSE_POSTED',
+          userId: actorId,
           entityType: 'REPAIR_TICKET',
           entityId: ticket.id,
           newValues: { costAmount, entryId, debit: 'acc-5040', credit: 'acc-1040' },
@@ -1341,11 +1345,16 @@ repairRouter.post('/tickets/:id/void-warranty', requireAuth, requireRole(['Manag
     }
     evidenceBuffer = Buffer.from(match[2], 'base64');
   } else if (evidence_file) {
-    if (!fs.existsSync(evidence_file)) {
+    const resolvedFile = path.resolve(evidence_file);
+    const allowedBase = path.resolve(process.cwd(), 'uploads');
+    if (!resolvedFile.startsWith(allowedBase)) {
+      return res.status(400).json({ error: 'Evidence file path must be within uploads directory', code: 'EVIDENCE_FORMAT_INVALID' });
+    }
+    if (!fs.existsSync(resolvedFile)) {
       return res.status(400).json({ error: 'Evidence file not found on disk', code: 'PHOTO_EVIDENCE_REQUIRED' });
     }
-    evidenceBuffer = fs.readFileSync(evidence_file);
-    ext = path.extname(evidence_file).slice(1) || 'jpg';
+    evidenceBuffer = fs.readFileSync(resolvedFile);
+    ext = path.extname(resolvedFile).slice(1) || 'jpg';
     if (ext === 'jpg') ext = 'jpeg';
     const mime = `image/${ext}`;
     if (!ALLOWED_MIME.includes(mime)) {
@@ -1366,22 +1375,28 @@ repairRouter.post('/tickets/:id/void-warranty', requireAuth, requireRole(['Manag
   const timestamp = Date.now();
   const filename = `${ticketId}-${timestamp}.${ext}`;
   const filepath = path.join(VOID_EVIDENCE_DIR, filename);
-  fs.writeFileSync(filepath, evidenceBuffer);
 
   const evidenceHash = crypto.createHash('sha256').update(evidenceBuffer).digest('hex');
   const managerId = req.user!.userId;
 
-  // Update ticket
-  db.prepare(`
-    UPDATE repair_tickets
-    SET warranty_status = 'VOIDED',
-        warranty_void_reason = ?,
-        warranty_void_evidence_path = ?,
-        warranty_void_evidence_hash = ?,
-        warranty_void_approved_by = ?,
-        warranty_void_approved_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `).run(reason, `warranty-evidence/${filename}`, evidenceHash, managerId, ticketId);
+  try {
+    fs.writeFileSync(filepath, evidenceBuffer);
+
+    // Update ticket
+    db.prepare(`
+      UPDATE repair_tickets
+      SET warranty_status = 'VOIDED',
+          warranty_void_reason = ?,
+          warranty_void_evidence_path = ?,
+          warranty_void_evidence_hash = ?,
+          warranty_void_approved_by = ?,
+          warranty_void_approved_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(reason, `warranty-evidence/${filename}`, evidenceHash, managerId, ticketId);
+  } catch (err) {
+    if (fs.existsSync(filepath)) fs.unlinkSync(filepath);
+    throw err;
+  }
 
   // Synchronous audit log
   logAudit({
