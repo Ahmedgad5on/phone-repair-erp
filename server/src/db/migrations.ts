@@ -118,12 +118,14 @@ export function runMigrations() {
       wholesale_price REAL NOT NULL DEFAULT 0.0,
       retail_price REAL NOT NULL DEFAULT 0.0,
       bulk_price REAL NOT NULL DEFAULT 0.0,
-      stock_quantity INTEGER NOT NULL DEFAULT 0,
+      stock_quantity INTEGER NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0),
+      reserved_quantity INTEGER NOT NULL DEFAULT 0 CHECK (reserved_quantity >= 0),
       min_limit INTEGER NOT NULL DEFAULT 2,
       warranty_days INTEGER DEFAULT 0,
       days_idle INTEGER DEFAULT 0,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      deleted_at TEXT
+      deleted_at TEXT,
+      CHECK (stock_quantity >= reserved_quantity)
     );
 
     -- 6. Strict IMEI Inventory Tracker

@@ -90,6 +90,123 @@ export function validateStatusTransition(
   return { valid: true };
 }
 
+// Logical Spare Parts Reservation Lifecycle (DEC-036 / ADR-036 / FR-003)
+export function reservePartsForTicket(ticketId: string): { success: boolean; reservedCount: number; errors?: string[] } {
+  const parts = db.prepare(`
+    SELECT id, item_id, is_reserved FROM repair_consumed_parts
+    WHERE ticket_id = ? AND item_id IS NOT NULL AND (is_reserved = 0 OR is_reserved IS NULL)
+  `).all(ticketId) as { id: string; item_id: string; is_reserved: number }[];
+
+  let count = 0;
+  const errors: string[] = [];
+
+  const reserveTx = db.transaction(() => {
+    for (const part of parts) {
+      const item = db.prepare('SELECT id, name, stock_quantity, reserved_quantity FROM items WHERE id = ?').get(part.item_id) as any;
+      if (!item) {
+        errors.push(`Item not found: ${part.item_id}`);
+        continue;
+      }
+      const available = item.stock_quantity - (item.reserved_quantity || 0);
+      if (available < 1) {
+        throw new Error(`INSUFFICIENT_STOCK_FOR_RESERVATION: Cannot reserve part "${item.name}" (Stock: ${item.stock_quantity}, Reserved: ${item.reserved_quantity || 0})`);
+      }
+      db.prepare('UPDATE items SET reserved_quantity = reserved_quantity + 1 WHERE id = ?').run(part.item_id);
+      db.prepare('UPDATE repair_consumed_parts SET is_reserved = 1 WHERE id = ?').run(part.id);
+      count++;
+    }
+  });
+
+  try {
+    reserveTx();
+    if (count > 0) {
+      logAudit({
+        action: 'RESERVE_PARTS',
+        entityType: 'REPAIR_TICKET',
+        entityId: ticketId,
+        newValues: { reservedCount: count }
+      });
+    }
+    return { success: true, reservedCount: count };
+  } catch (err: any) {
+    console.error(`[Repair Reservation Error for ticket ${ticketId}]:`, err.message);
+    return { success: false, reservedCount: 0, errors: [err.message] };
+  }
+}
+
+export function reconcileDeliveredPartsForTicket(ticketId: string): { success: boolean; deductedCount: number } {
+  const parts = db.prepare(`
+    SELECT id, item_id, is_reserved FROM repair_consumed_parts
+    WHERE ticket_id = ? AND item_id IS NOT NULL AND is_reserved = 1
+  `).all(ticketId) as { id: string; item_id: string; is_reserved: number }[];
+
+  let count = 0;
+  const deliverTx = db.transaction(() => {
+    for (const part of parts) {
+      db.prepare(`
+        UPDATE items
+        SET stock_quantity = MAX(0, stock_quantity - 1),
+            reserved_quantity = MAX(0, reserved_quantity - 1)
+        WHERE id = ?
+      `).run(part.item_id);
+      db.prepare('UPDATE repair_consumed_parts SET is_reserved = 2 WHERE id = ?').run(part.id);
+      count++;
+    }
+  });
+
+  try {
+    deliverTx();
+    if (count > 0) {
+      logAudit({
+        action: 'DELIVER_PARTS',
+        entityType: 'REPAIR_TICKET',
+        entityId: ticketId,
+        newValues: { deductedCount: count }
+      });
+    }
+    return { success: true, deductedCount: count };
+  } catch (err: any) {
+    console.error(`[Repair Part Delivery Error for ticket ${ticketId}]:`, err.message);
+    return { success: false, deductedCount: 0 };
+  }
+}
+
+export function releaseReservedPartsForTicket(ticketId: string): { success: boolean; releasedCount: number } {
+  const parts = db.prepare(`
+    SELECT id, item_id, is_reserved FROM repair_consumed_parts
+    WHERE ticket_id = ? AND item_id IS NOT NULL AND is_reserved = 1
+  `).all(ticketId) as { id: string; item_id: string; is_reserved: number }[];
+
+  let count = 0;
+  const releaseTx = db.transaction(() => {
+    for (const part of parts) {
+      db.prepare(`
+        UPDATE items
+        SET reserved_quantity = MAX(0, reserved_quantity - 1)
+        WHERE id = ?
+      `).run(part.item_id);
+      db.prepare('UPDATE repair_consumed_parts SET is_reserved = 3 WHERE id = ?').run(part.id);
+      count++;
+    }
+  });
+
+  try {
+    releaseTx();
+    if (count > 0) {
+      logAudit({
+        action: 'RELEASE_PARTS',
+        entityType: 'REPAIR_TICKET',
+        entityId: ticketId,
+        newValues: { releasedCount: count }
+      });
+    }
+    return { success: true, releasedCount: count };
+  } catch (err: any) {
+    console.error(`[Repair Part Release Error for ticket ${ticketId}]:`, err.message);
+    return { success: false, releasedCount: 0 };
+  }
+}
+
 // SLA Escalation Auto-Alerts
 export function checkSlaEscalations(): any[] {
   try {

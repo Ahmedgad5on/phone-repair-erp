@@ -1417,6 +1417,237 @@ async function runExtendedSuites() {
     'Vector 8: Seeded master POS device uses crypto random 64-char token (DEC-043 condition enforced)'
   );
 
+  // TEST 68: Logical Spare Parts Reservation & POS Contention Defense (DEC-036 / ADR-036 / FR-003 / RISK-010)
+  console.log('\n[Test Suite 68: Logical Spare Parts Reservation & POS Contention Defense (DEC-036, FR-003)]');
+
+  // Vector (a): Reservation + Concurrent POS Race Attempt
+  const raceItemId = 'itm-res-race-' + uuidv4().slice(0, 6);
+  db.prepare(`
+    INSERT INTO items (id, store_id, sku, name, category, purchase_price, retail_price, stock_quantity, reserved_quantity, min_limit)
+    VALUES (?, ?, ?, 'iPhone 15 OLED Screen Original', 'SPARE_PART', 1200, 2500, 2, 0, 1)
+  `).run(raceItemId, defaultStore.id, 'SKU-RACE-' + uuidv4().slice(0, 6));
+
+  // Workshop technician creates ticket and moves to IN_REPAIR with 1 unit of this part attached
+  const raceCustId = 'cust-race-' + uuidv4().slice(0, 6);
+  db.prepare(`INSERT INTO customers (id, store_id, name, phone) VALUES (?, ?, 'Race Customer', '01011112222')`).run(raceCustId, defaultStore.id);
+  const raceTicketId = 'tkt-race-' + uuidv4().slice(0, 6);
+  db.prepare(`
+    INSERT INTO repair_tickets (id, ticket_number, store_id, customer_id, device_brand, device_model, reported_defects, status, priority, estimated_cost, release_otp)
+    VALUES (?, 9901, ?, ?, 'Apple', 'iPhone 15', 'Broken Screen', 'IN_REPAIR', 'NORMAL', 2800, '4321')
+  `).run(raceTicketId, defaultStore.id, raceCustId);
+
+  // Allocate 1 unit of part to ticket
+  const allocRes = await fetch(`${baseUrl}/api/repair/tickets/${raceTicketId}/consume-part`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      item_id: raceItemId,
+      part_name: 'iPhone 15 OLED Screen Original',
+      cost_price: 1200,
+      selling_price: 2500
+    })
+  });
+  const allocData = (await allocRes.json()) as any;
+  assert(allocRes.status === 201 && allocData.is_reserved === 1, 'Vector (a).1: Part allocated to IN_REPAIR ticket and marked is_reserved = 1');
+
+  const itemAfterAlloc = db.prepare('SELECT stock_quantity, reserved_quantity FROM items WHERE id = ?').get(raceItemId) as any;
+  assert(
+    itemAfterAlloc.stock_quantity === 2 && itemAfterAlloc.reserved_quantity === 1,
+    'Vector (a).2: Logical reservation active: stock_quantity remains 2, reserved_quantity is 1 (Available = 1)'
+  );
+
+  // Concurrent POS cashier attempts to checkout 2 units (exceeds available stock of 1)
+  const posOverRes = await fetch(`${baseUrl}/api/retail/sales`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      items: [{ item_id: raceItemId, item_name: 'iPhone 15 OLED Screen Original', unit_price: 2500, quantity: 2 }]
+    })
+  });
+  const posOverData = (await posOverRes.json()) as any;
+  assert(
+    posOverRes.status === 409 && posOverData.error === 'INSUFFICIENT_AVAILABLE_STOCK',
+    'Vector (a).3: Concurrent POS checkout of 2 units rejected with HTTP 409 and error INSUFFICIENT_AVAILABLE_STOCK'
+  );
+
+  // Cashier checks out 1 unit (the unreserved available unit) -> succeeds
+  const posOkRes = await fetch(`${baseUrl}/api/retail/sales`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      items: [{ item_id: raceItemId, item_name: 'iPhone 15 OLED Screen Original', unit_price: 2500, quantity: 1 }],
+      payment_method: 'CASH'
+    })
+  });
+  assert(posOkRes.status === 201, 'Vector (a).4: POS checkout of 1 available unit accepted with HTTP 201');
+
+  const itemAfterPos = db.prepare('SELECT stock_quantity, reserved_quantity FROM items WHERE id = ?').get(raceItemId) as any;
+  assert(
+    itemAfterPos.stock_quantity === 1 && itemAfterPos.reserved_quantity === 1,
+    'Vector (a).5: Stock decremented to 1, reserved_quantity remains 1 (Available = 0)'
+  );
+
+  // Cashier attempts another checkout when available is 0 -> rejected with HTTP 409
+  const posZeroAvailRes = await fetch(`${baseUrl}/api/retail/sales`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      items: [{ item_id: raceItemId, item_name: 'iPhone 15 OLED Screen Original', unit_price: 2500, quantity: 1 }]
+    })
+  });
+  assert(
+    posZeroAvailRes.status === 409,
+    'Vector (a).6: Further POS checkout strictly rejected with HTTP 409 when available stock is 0'
+  );
+
+  // Vector (b): Reservation Quantity > Stock Attempt against the CHECK Constraint
+  let dbCheckViolated = false;
+  try {
+    db.prepare('UPDATE items SET reserved_quantity = 5 WHERE id = ?').run(raceItemId); // stock is 1
+  } catch (err: any) {
+    dbCheckViolated = err.message.includes('CHECK constraint failed');
+  }
+  assert(
+    dbCheckViolated,
+    'Vector (b).1: SQLite engine strictly rejected reserved_quantity > stock_quantity with CHECK constraint failure'
+  );
+
+  let negCheckViolated = false;
+  try {
+    db.prepare('UPDATE items SET reserved_quantity = -1 WHERE id = ?').run(raceItemId);
+  } catch (err: any) {
+    negCheckViolated = err.message.includes('CHECK constraint failed');
+  }
+  assert(
+    negCheckViolated,
+    'Vector (b).2: SQLite engine strictly rejected negative reserved_quantity with CHECK constraint failure'
+  );
+
+  // Server guard test: Attempting to allocate when available stock is 0 returns HTTP 409
+  const overAllocRes = await fetch(`${baseUrl}/api/repair/tickets/${raceTicketId}/consume-part`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      item_id: raceItemId,
+      part_name: 'iPhone 15 OLED Screen Original',
+      cost_price: 1200,
+      selling_price: 2500
+    })
+  });
+  assert(
+    overAllocRes.status === 409,
+    'Vector (b).3: Server guard rejected repair part allocation exceeding available stock with HTTP 409'
+  );
+
+  // Vector (c): Asymmetric Double Lifecycle: DELIVERED vs CANCELLED
+  const doubleLifeItemId = 'itm-life-' + uuidv4().slice(0, 6);
+  db.prepare(`
+    INSERT INTO items (id, store_id, sku, name, category, purchase_price, retail_price, stock_quantity, reserved_quantity, min_limit)
+    VALUES (?, ?, ?, 'OEM Battery iPhone 14', 'SPARE_PART', 400, 950, 2, 0, 1)
+  `).run(doubleLifeItemId, defaultStore.id, 'SKU-LIFE-' + uuidv4().slice(0, 6));
+
+  // Create Ticket 1 (DIAGNOSED)
+  const tkt1Id = 'tkt-deliv-' + uuidv4().slice(0, 6);
+  db.prepare(`
+    INSERT INTO repair_tickets (id, ticket_number, store_id, customer_id, device_brand, device_model, reported_defects, status, priority, estimated_cost, release_otp)
+    VALUES (?, 9911, ?, ?, 'Apple', 'iPhone 14', 'Battery Drain', 'DIAGNOSED', 'NORMAL', 950, '1111')
+  `).run(tkt1Id, defaultStore.id, raceCustId);
+
+  // Create Ticket 2 (DIAGNOSED)
+  const tkt2Id = 'tkt-canc-' + uuidv4().slice(0, 6);
+  db.prepare(`
+    INSERT INTO repair_tickets (id, ticket_number, store_id, customer_id, device_brand, device_model, reported_defects, status, priority, estimated_cost, release_otp)
+    VALUES (?, 9912, ?, ?, 'Apple', 'iPhone 14', 'Battery Swollen', 'DIAGNOSED', 'NORMAL', 950, '2222')
+  `).run(tkt2Id, defaultStore.id, raceCustId);
+
+  // Attach 1 part to Ticket 1 and 1 part to Ticket 2 (status DIAGNOSED -> is_reserved = 0 initially)
+  db.prepare(`
+    INSERT INTO repair_consumed_parts (id, ticket_id, item_id, part_name, vendor_batch_code, cost_price, selling_price, is_reserved)
+    VALUES (?, ?, ?, 'OEM Battery iPhone 14', 'BATCH-01', 400, 950, 0)
+  `).run('rcp-life-1', tkt1Id, doubleLifeItemId);
+
+  db.prepare(`
+    INSERT INTO repair_consumed_parts (id, ticket_id, item_id, part_name, vendor_batch_code, cost_price, selling_price, is_reserved)
+    VALUES (?, ?, ?, 'OEM Battery iPhone 14', 'BATCH-02', 400, 950, 0)
+  `).run('rcp-life-2', tkt2Id, doubleLifeItemId);
+
+  // Move Ticket 1 to IN_REPAIR -> triggers reservation
+  const tkt1InRepairRes = await fetch(`${baseUrl}/api/repair/tickets/${tkt1Id}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'IN_REPAIR' })
+  });
+  assert(tkt1InRepairRes.status === 200, 'Vector (c).1: Ticket 1 transitioned to IN_REPAIR');
+
+  // Move Ticket 2 to IN_REPAIR -> triggers reservation
+  const tkt2InRepairRes = await fetch(`${baseUrl}/api/repair/tickets/${tkt2Id}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'IN_REPAIR' })
+  });
+  assert(tkt2InRepairRes.status === 200, 'Vector (c).2: Ticket 2 transitioned to IN_REPAIR');
+
+  const itemBothReserved = db.prepare('SELECT stock_quantity, reserved_quantity FROM items WHERE id = ?').get(doubleLifeItemId) as any;
+  assert(
+    itemBothReserved.stock_quantity === 2 && itemBothReserved.reserved_quantity === 2,
+    'Vector (c).3: Both tickets reserved their parts: stock_quantity = 2, reserved_quantity = 2 (Available = 0)'
+  );
+
+  // Branch 1: Deliver Ticket 1 (requires QA checklist for READY -> then DELIVERED)
+  const tkt1ReadyRes = await fetch(`${baseUrl}/api/repair/tickets/${tkt1Id}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'READY', qa_checklist: { battery_tested: true, charge_cycle: 100 } })
+  });
+  assert(tkt1ReadyRes.status === 200, 'Vector (c).4: Ticket 1 transitioned to READY with valid QA checklist');
+
+  const tkt1DeliverRes = await fetch(`${baseUrl}/api/repair/tickets/${tkt1Id}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'DELIVERED' })
+  });
+  assert(tkt1DeliverRes.status === 200, 'Vector (c).5: Ticket 1 transitioned to DELIVERED');
+
+  const itemAfterDeliver = db.prepare('SELECT stock_quantity, reserved_quantity FROM items WHERE id = ?').get(doubleLifeItemId) as any;
+  assert(
+    itemAfterDeliver.stock_quantity === 1 && itemAfterDeliver.reserved_quantity === 1,
+    'Vector (c).6: DELIVERED lifecycle: Asymmetric physical deduction + reservation clearance (stock 2->1, reserved 2->1)'
+  );
+
+  // Branch 2: Cancel Ticket 2
+  const tkt2CancelRes = await fetch(`${baseUrl}/api/repair/tickets/${tkt2Id}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'CANCELLED' })
+  });
+  assert(tkt2CancelRes.status === 200, 'Vector (c).7: Ticket 2 transitioned to CANCELLED');
+
+  const itemAfterCancel = db.prepare('SELECT stock_quantity, reserved_quantity FROM items WHERE id = ?').get(doubleLifeItemId) as any;
+  assert(
+    itemAfterCancel.stock_quantity === 1 && itemAfterCancel.reserved_quantity === 0,
+    'Vector (c).8: CANCELLED lifecycle: Reservation released without physical stock deduction (stock remains 1, reserved becomes 0)'
+  );
+
+  // Asymmetric Reconciliation Final Verification: Released unit is immediately available for POS sale
+  const posReleasedSaleRes = await fetch(`${baseUrl}/api/retail/sales`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      items: [{ item_id: doubleLifeItemId, item_name: 'OEM Battery iPhone 14', unit_price: 950, quantity: 1 }],
+      payment_method: 'CASH'
+    })
+  });
+  assert(
+    posReleasedSaleRes.status === 201,
+    'Vector (c).9: Released part from cancelled repair immediately and successfully sold at POS counter (HTTP 201)'
+  );
+
+  const finalDoubleLifeItem = db.prepare('SELECT stock_quantity, reserved_quantity FROM items WHERE id = ?').get(doubleLifeItemId) as any;
+  assert(
+    finalDoubleLifeItem.stock_quantity === 0 && finalDoubleLifeItem.reserved_quantity === 0,
+    'Vector (c).10: Asymmetric double lifecycle fully settled: stock_quantity = 0, reserved_quantity = 0'
+  );
+
   // Close ephemeral test server
   testServer.close();
 }

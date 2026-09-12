@@ -138,13 +138,18 @@ retailRouter.post('/sales', (req: Request, res: Response) => {
 
     const requestedQty = Math.max(1, Math.floor(itm.quantity || 1));
 
-    // Requirement 8: Negative Inventory Prevention (R2.8)
-    if (status === 'COMPLETED' && dbItem.stock_quantity < requestedQty) {
+    // Requirement 8 & DEC-036: Negative Inventory & Repair Stock Reservation Defense
+    const reservedQty = Number(dbItem.reserved_quantity) || 0;
+    const availableStock = Math.max(0, dbItem.stock_quantity - reservedQty);
+
+    if (status === 'COMPLETED' && availableStock < requestedQty) {
       insufficientItems.push({
         item_id: itm.item_id,
         name: dbItem.name,
         requested: requestedQty,
-        available: dbItem.stock_quantity
+        available: availableStock,
+        stock_quantity: dbItem.stock_quantity,
+        reserved_quantity: reservedQty
       });
     }
 
@@ -167,7 +172,8 @@ retailRouter.post('/sales', (req: Request, res: Response) => {
 
   if (insufficientItems.length > 0) {
     return res.status(409).json({
-      error: 'Insufficient stock',
+      error: 'INSUFFICIENT_AVAILABLE_STOCK',
+      message: 'Item has reserved stock allocated to active workshop repairs or insufficient inventory per DEC-036.',
       items: insufficientItems
     });
   }
@@ -435,17 +441,32 @@ retailRouter.post('/sales/:id/approve', (req: Request, res: Response) => {
 
   const saleItems = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(sale.id) as any[];
 
-  // Negative stock guard before approving draft
+  // Negative stock and repair reservation guard before approving draft (DEC-036)
   const insufficient: any[] = [];
   for (const itm of saleItems) {
-    const currentItem = db.prepare('SELECT stock_quantity, name FROM items WHERE id = ?').get(itm.item_id) as any;
-    if (currentItem && currentItem.stock_quantity < itm.quantity) {
-      insufficient.push({ item_id: itm.item_id, name: currentItem.name, requested: itm.quantity, available: currentItem.stock_quantity });
+    const currentItem = db.prepare('SELECT stock_quantity, reserved_quantity, name FROM items WHERE id = ?').get(itm.item_id) as any;
+    if (currentItem) {
+      const reserved = Number(currentItem.reserved_quantity) || 0;
+      const available = Math.max(0, currentItem.stock_quantity - reserved);
+      if (available < itm.quantity) {
+        insufficient.push({
+          item_id: itm.item_id,
+          name: currentItem.name,
+          requested: itm.quantity,
+          available,
+          stock_quantity: currentItem.stock_quantity,
+          reserved_quantity: reserved
+        });
+      }
     }
   }
 
   if (insufficient.length > 0) {
-    return res.status(409).json({ error: 'Insufficient stock', items: insufficient });
+    return res.status(409).json({
+      error: 'INSUFFICIENT_AVAILABLE_STOCK',
+      message: 'Item has reserved stock allocated to active workshop repairs or insufficient inventory per DEC-036.',
+      items: insufficient
+    });
   }
 
   for (const itm of saleItems) {
