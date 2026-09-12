@@ -4,7 +4,7 @@
 **Status:** Draft / Pending Owner Review  
 **Specification Path:** `specs/003-warranty-governance-lifecycle/spec.md`  
 **Target Milestone:** Phase 3 — Milestone 3  
-**Governing Architecture:** Constitution v1.0.1 | DEC-031, DEC-032, DEC-033, DEC-035, DEC-041, DEC-042 | ADR-031, ADR-032, ADR-033, ADR-035, ADR-041, ADR-042  
+**Governing Architecture:** Constitution v1.0.1 | DEC-031, DEC-032, DEC-033, DEC-035, DEC-041, DEC-042, DEC-045 | ADR-031, ADR-032, ADR-033, ADR-035, ADR-041, ADR-042  
 **Target Git Branch:** `feature/003-warranty-governance-lifecycle`  
 **Created:** 2026-09-12  
 
@@ -65,22 +65,14 @@ In the current codebase:
 ## 3. Functional Requirements (The "WHAT")
 
 ### FR-007: Warranty Duration Matrix, Window Inheritance & Grace Policy (DEC-041, DEC-032)
-- **FR-007.1 (Configurable Duration Matrix):** Baseline warranty durations are governed by configurable category settings in the `settings` table with strict defaults per DEC-041:
-  - Screens / Displays (`SCREEN`): 90 days
-  - Batteries (`BATTERY`): 60 days
-  - Motherboard / Other Repairs / Labor (`MOTHERBOARD`, `LABOR`, `OTHER`): 30 days
-  - Unclassified fallback: 30 days
-- **FR-007.2 (Window Inheritance Protocol):** When a warranty rework repair is opened (`is_warranty_repair = 1`, referencing `parent_ticket_id`):
-  - Replaced components strictly inherit the remaining duration of the original ticket's warranty certificate without renewal (DEC-032).
-  - The warranty window DOES NOT reset to full category duration.
-  - Remaining warranty days = `ceiling((parent_warranty_expiry - current_timestamp) / 86400)`.
-- **FR-007.3 (Testing Grace Policy):** If remaining warranty duration is less than 3 days upon delivery of the replacement component, a minimum 3-day testing grace period applies from the delivery timestamp (`current_timestamp + 3 days`) per DEC-041.
-- **FR-007.4 (Expired Intake Rejection):** If a customer attempts warranty intake after the original warranty expiry plus the 3-day grace period has elapsed (`current_timestamp > original_expiry_date + 3 days grace`), the intake request MUST be rejected with `HTTP 400 Bad Request` (`WARRANTY_EXPIRED`).
+- **FR-007.1 (Duration Matrix & Start Trigger):** Warranty starts at DELIVERED only (delivery date = warranty start date). Duration by primary part category, configurable in settings table with strict DEC-041 defaults: SCREEN/DISPLAY: 90 days. BATTERY: 60 days. MOTHERBOARD/LABOR/OTHER: 30 days. Unclassified fallback: 30 days.
+- **FR-007.2 (Claim Acceptance Gate):** A warranty return (parent_ticket_id set) is accepted ONLY if current_date <= original_expiry_date. Claims after expiry are rejected with HTTP 422 WARRANTY_EXPIRED. NOTHING extends claim acceptance — not the grace, not anything.
+- **FR-007.3 (Granted Window for accepted claims):** The replacement inherits original_expiry_date - current_date remaining days. If remaining < 3 days, the GRANTED replacement window is set to exactly 3 days (minimum testing grace for the NEW part). This grace applies to the granted window only — it NEVER extends claim acceptance (anti-abuse: lateness buys nothing).
 
 ### FR-008: Warranty Voiding RBAC & Mandatory Photographic Evidence (DEC-033, DEC-042)
 - **FR-008.1:** Dedicated endpoint: `POST /api/repair/tickets/:id/void-warranty`.
 - **FR-008.2:** Role Gate: Only `MANAGER` or `ADMIN` may execute this endpoint. Technician requests rejected with `HTTP 403 Forbidden` (`WARRANTY_VOID_FORBIDDEN`).
-- **FR-008.3 (Mandatory Photo Evidence & Role Gate):** Voiding a repair warranty on grounds of customer physical damage or liquid ingress strictly requires two conditions: (1) mandatory photographic evidence uploaded to the ticket inspection record (rejected with `HTTP 400 Bad Request` `PHOTO_EVIDENCE_REQUIRED` if missing), and (2) explicit authentication and approval by a `MANAGER` or `ADMIN` role (DEC-033, rejected with `HTTP 403 Forbidden` `WARRANTY_VOID_FORBIDDEN` for non-manager roles). File is stored on the filesystem (`server/uploads/warranty-evidence/`) with SHA-256 integrity hash recorded in SQLite (DEC-042).
+- **FR-008.3 (Evidence Gate + Hardening):** Request must supply non-empty reason and evidence_file (or base64 image). Validation: MIME ∈ {image/jpeg, image/png}; size ≤ 5MB. Missing → HTTP 400 PHOTO_EVIDENCE_REQUIRED; wrong type → HTTP 400 EVIDENCE_FORMAT_INVALID; oversized → HTTP 400 EVIDENCE_TOO_LARGE. Each condition has its own test vector in Test Suite 73.
 - **FR-008.4 (Storage & Mirroring Contract):**
   - File saved to: `server/uploads/warranty-evidence/<ticket-id>-<timestamp>.<ext>`.
   - External Persistence (Option a): The `server/uploads/` directory joins automated external USB mirroring (`USB_BACKUP_PATH/uploads`) during backup operations so warranty forensic evidence survives host drive failure.

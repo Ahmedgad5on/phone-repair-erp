@@ -5,7 +5,7 @@
 **Plan Path:** `specs/003-warranty-governance-lifecycle/plan.md`  
 **Specification Reference:** `specs/003-warranty-governance-lifecycle/spec.md`  
 **Target Milestone:** Phase 3 — Milestone 3  
-**Governing Architecture:** Constitution v1.0.1 | DEC-031, DEC-032, DEC-033, DEC-035, DEC-041, DEC-042 | ADR-031, ADR-032, ADR-033, ADR-035, ADR-041, ADR-042  
+**Governing Architecture:** Constitution v1.0.1 | DEC-031, DEC-032, DEC-033, DEC-035, DEC-041, DEC-042, DEC-045 | ADR-031, ADR-032, ADR-033, ADR-035, ADR-041, ADR-042  
 **Target Git Branch:** `feature/003-warranty-governance-lifecycle`  
 **Created:** 2026-09-12  
 
@@ -39,10 +39,10 @@
        |  [ITEM 3: WARRANTY PARTS OPERATING EXPENSE ACCOUNTING (DEC-031)]                        |
        |  Part Consumed on Warranty Repair (is_warranty = 1)                                     |
        |          |                                                                              |
-       |          +--> Customer Charge = 0 EGP                                                   |
+       |          +--> Customer Charge = 0 piastres                                               |
        |          \--> Post General Ledger:                                                      |
-       |                 Debit:  WARRANTY_EXPENSE (COA-5004)                                     |
-       |                 Credit: INVENTORY_ASSET  (COA-1004)                                     |
+       |                 Debit:  acc-5040 (Warranty Parts Expense)                                |
+       |                 Credit: acc-1040 (Spare Parts Inventory)                                 |
        |                                                                                         |
        |  [ITEM 4: REJECTED SUPPLIER RETURNS DISPOSITION (DEC-035)]                              |
        |  POST /api/procurement/rtv/:id/reject                                                   |
