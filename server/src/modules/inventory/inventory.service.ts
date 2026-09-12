@@ -848,14 +848,19 @@ export class InventoryService {
 
   public static updateSupplierScoreOnPoReceipt(supplierNameOrId: string, onTime: boolean, accepted: boolean) {
     this.ensureTablesAndSeed();
-    let score = db.prepare('SELECT * FROM supplier_scores WHERE supplier_id = ? OR supplier_name = ?').get(supplierNameOrId, supplierNameOrId) as any;
+    const sup = db.prepare('SELECT id, name FROM suppliers WHERE id = ? OR name = ?').get(supplierNameOrId, supplierNameOrId) as any;
+    const supId = sup ? sup.id : (db.prepare('SELECT id FROM suppliers LIMIT 1').get() as any)?.id;
+    if (!supId) return;
+    const supName = sup ? sup.name : supplierNameOrId;
+
+    let score = db.prepare('SELECT * FROM supplier_scores WHERE supplier_id = ? OR supplier_name = ?').get(supId, supName) as any;
 
     if (!score) {
       const id = `score-${uuidv4().substring(0, 8)}`;
       db.prepare(`
         INSERT INTO supplier_scores (id, supplier_id, supplier_name, on_time_rate, quality_rate, return_rate, total_orders, last_updated)
         VALUES (?, ?, ?, ?, ?, 0.0, 1, CURRENT_TIMESTAMP)
-      `).run(id, supplierNameOrId, supplierNameOrId, onTime ? 100.0 : 80.0, accepted ? 100.0 : 75.0);
+      `).run(id, supId, supName, onTime ? 100.0 : 80.0, accepted ? 100.0 : 75.0);
       return;
     }
 

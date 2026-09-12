@@ -3,6 +3,7 @@ import db from '../../db/database';
 import { v4 as uuidv4 } from 'uuid';
 import { logAudit } from '../../services/audit.service';
 import { InventoryService } from '../inventory/inventory.service';
+import { verifyToken } from '../../middleware/auth';
 
 export const sparePartsRouter = Router();
 
@@ -268,44 +269,63 @@ sparePartsRouter.post('/purchase-orders', (req: Request, res: Response) => {
   const { supplier_name, supplier_phone, notes, items } = req.body;
   const store = db.prepare('SELECT id FROM stores LIMIT 1').get() as { id: string };
 
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'INVALID_PO_ITEMS', message: 'Purchase order must contain at least one item' });
+  }
+
+  for (const itm of items) {
+    const qty = Number(itm.quantity);
+    const cost = Number(itm.estimated_unit_cost);
+    if (isNaN(qty) || qty <= 0) {
+      return res.status(400).json({ error: 'INVALID_QUANTITY', message: 'Item quantity must be strictly positive' });
+    }
+    if (isNaN(cost) || cost < 0) {
+      return res.status(400).json({ error: 'INVALID_COST', message: 'Item estimated unit cost cannot be negative' });
+    }
+  }
+
   const maxPo = db.prepare('SELECT COALESCE(MAX(po_number), 7000) as maxNum FROM purchase_orders').get() as { maxNum: number };
   const poNumber = maxPo.maxNum + 1;
   const poId = `po-${uuidv4().substring(0, 8)}`;
 
-  let totalAmount = 0;
-  if (items && Array.isArray(items)) {
-    for (const itm of items) {
-      totalAmount += (Number(itm.estimated_unit_cost) || 0) * (Number(itm.quantity) || 1);
-    }
+  // Integer-piastre precision per Constitution Principle I & DEC-011
+  let totalAmountPiastres = 0;
+  for (const itm of items) {
+    const qty = Math.floor(Number(itm.quantity) || 1);
+    const unitCostPiastres = Math.round((Number(itm.estimated_unit_cost) || 0) * 100);
+    totalAmountPiastres += unitCostPiastres * qty;
   }
+  const totalAmount = totalAmountPiastres / 100;
+
+  const thresholdPiastres = 10000 * 100; // 10,000 EGP = 1,000,000 piastres per DEC-034
+  const initialStatus = totalAmountPiastres > thresholdPiastres ? 'PENDING_APPROVAL' : 'ORDERED';
 
   db.prepare(`
     INSERT INTO purchase_orders (id, po_number, store_id, supplier_name, supplier_phone, status, total_amount, notes)
-    VALUES (?, ?, ?, ?, ?, 'ORDERED', ?, ?)
-  `).run(poId, poNumber, store.id, supplier_name, supplier_phone || '', totalAmount, notes || '');
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(poId, poNumber, store.id, supplier_name, supplier_phone || '', initialStatus, totalAmount, notes || '');
 
-  if (items && Array.isArray(items)) {
-    const insertPoItem = db.prepare(`
-      INSERT INTO purchase_order_items (id, po_id, item_id, item_name, quantity, estimated_unit_cost)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
-    for (const itm of items) {
-      insertPoItem.run(
-        `poi-${uuidv4().substring(0, 8)}`,
-        poId,
-        itm.item_id || null,
-        itm.item_name,
-        itm.quantity || 1,
-        itm.estimated_unit_cost || 0.0
-      );
-    }
+  const insertPoItem = db.prepare(`
+    INSERT INTO purchase_order_items (id, po_id, item_id, item_name, quantity, estimated_unit_cost)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  for (const itm of items) {
+    insertPoItem.run(
+      `poi-${uuidv4().substring(0, 8)}`,
+      poId,
+      itm.item_id || null,
+      itm.item_name,
+      Math.floor(Number(itm.quantity) || 1),
+      Number(itm.estimated_unit_cost) || 0.0
+    );
   }
 
   logAudit({
+    userId: (req as any).user?.userId || 'usr-admin',
     action: 'CREATE',
     entityType: 'PURCHASE_ORDER',
     entityId: poId,
-    newValues: { poNumber, supplier_name, totalAmount },
+    newValues: { poNumber, supplier_name, totalAmount, status: initialStatus },
     ipAddress: req.ip
   });
 
@@ -313,9 +333,65 @@ sparePartsRouter.post('/purchase-orders', (req: Request, res: Response) => {
   res.status(201).json(created);
 });
 
+sparePartsRouter.post('/purchase-orders/:id/approve', (req: Request, res: Response) => {
+  let user = (req as any).user;
+  if (!user && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+    try {
+      user = verifyToken(req.headers.authorization.split(' ')[1]);
+    } catch (e) {}
+  }
+
+  // Strict JWT RBAC enforcement: never trust client body for roles or identities (DEC-034 / NFR-006)
+  if (!user || !user.role || !['SuperAdmin', 'Admin', 'Manager'].includes(user.role)) {
+    return res.status(403).json({
+      error: 'PO_APPROVAL_FORBIDDEN',
+      message: `Forbidden. Role [${user?.role || 'Unauthenticated'}] does not have permission to approve purchase orders (> 10,000 EGP ceiling per DEC-034).`
+    });
+  }
+
+  const approverId = user.userId || user.id;
+
+  const po = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(String(req.params.id)) as any;
+  if (!po) return res.status(404).json({ error: 'Purchase order not found' });
+
+  if (po.status !== 'PENDING_APPROVAL') {
+    return res.status(400).json({
+      error: 'PO_NOT_PENDING_APPROVAL',
+      message: `Purchase order #${po.po_number} is in status "${po.status}" and does not require approval.`
+    });
+  }
+
+  db.prepare(`
+    UPDATE purchase_orders
+    SET status = 'ORDERED',
+        approved_by = ?,
+        approved_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(approverId, po.id);
+
+  logAudit({
+    userId: approverId,
+    action: 'APPROVE',
+    entityType: 'PURCHASE_ORDER',
+    entityId: po.id,
+    newValues: { status: 'ORDERED', approved_by: approverId, total_amount: po.total_amount },
+    ipAddress: req.ip
+  });
+
+  const approvedPo = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(po.id);
+  res.status(200).json({ success: true, message: 'Purchase order approved successfully', purchase_order: approvedPo });
+});
+
 sparePartsRouter.post('/purchase-orders/:id/receive', (req: Request, res: Response) => {
   const po = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(String(req.params.id)) as any;
   if (!po) return res.status(404).json({ error: 'Purchase order not found' });
+
+  if (po.status === 'PENDING_APPROVAL') {
+    return res.status(403).json({
+      error: 'PO_APPROVAL_REQUIRED',
+      message: 'Cannot receive purchase order pending management approval (> 10,000 EGP ceiling per DEC-034)'
+    });
+  }
 
   if (po.status === 'RECEIVED') {
     return res.status(400).json({ error: 'Purchase order is already received' });
@@ -364,6 +440,7 @@ sparePartsRouter.post('/purchase-orders/:id/receive', (req: Request, res: Respon
   receiveTx.immediate();
 
   logAudit({
+    userId: (req as any).user?.userId || 'usr-admin',
     action: 'UPDATE',
     entityType: 'PURCHASE_ORDER',
     entityId: po.id,

@@ -128,6 +128,14 @@ retailRouter.post('/sales', (req: Request, res: Response) => {
     name: string;
     requested: number;
     available: number;
+    stock_quantity: number;
+    reserved_quantity: number;
+  }> = [];
+
+  const frozenItems: Array<{
+    item_id: string;
+    name: string;
+    requested: number;
   }> = [];
 
   for (const itm of items) {
@@ -137,6 +145,15 @@ retailRouter.post('/sales', (req: Request, res: Response) => {
     }
 
     const requestedQty = Math.max(1, Math.floor(itm.quantity || 1));
+
+    // DEC-023 / DEC-030: Stocktake freeze detection
+    if (status === 'COMPLETED' && dbItem.is_frozen === 1) {
+      frozenItems.push({
+        item_id: itm.item_id,
+        name: dbItem.name,
+        requested: requestedQty
+      });
+    }
 
     // Requirement 8 & DEC-036: Negative Inventory & Repair Stock Reservation Defense
     const reservedQty = Number(dbItem.reserved_quantity) || 0;
@@ -176,6 +193,29 @@ retailRouter.post('/sales', (req: Request, res: Response) => {
       message: 'Item has reserved stock allocated to active workshop repairs or insufficient inventory per DEC-036.',
       items: insufficientItems
     });
+  }
+
+  // Enforce Stocktake Freeze Guard (DEC-023 / DEC-030)
+  let stocktakeOverrideResult: any = null;
+  const overrideToken = req.body.manager_override_token || req.body.override_token;
+
+  if (frozenItems.length > 0) {
+    if (!overrideToken) {
+      return res.status(409).json({
+        error: 'ITEM_FROZEN_IN_STOCKTAKE',
+        message: `Item "${frozenItems[0].name}" is currently frozen for active stocktake. Manager override required.`,
+        item_id: frozenItems[0].item_id,
+        frozen_items: frozenItems
+      });
+    }
+
+    stocktakeOverrideResult = SalesRepository.validateAndConsumeOverrideToken(overrideToken);
+    if (!stocktakeOverrideResult.valid) {
+      return res.status(403).json({
+        error: 'INVALID_OVERRIDE_TOKEN',
+        message: stocktakeOverrideResult.error || 'Invalid or expired manager override token'
+      });
+    }
   }
 
   // Find or create customer
@@ -322,6 +362,14 @@ retailRouter.post('/sales', (req: Request, res: Response) => {
         // Safe exact stock decrement
         db.prepare('UPDATE items SET stock_quantity = stock_quantity - ?, last_sold_date = CURRENT_TIMESTAMP WHERE id = ?').run(qty, itm.item_id);
 
+        if (stocktakeOverrideResult && frozenItems.some(fi => fi.item_id === itm.item_id)) {
+          db.prepare(`
+            UPDATE stock_count_items
+            SET override_sales_quantity = override_sales_quantity + ?
+            WHERE item_id = ? AND status = 'FROZEN'
+          `).run(qty, itm.item_id);
+        }
+
         if (itm.imei) {
           db.prepare(`
             UPDATE imei_records
@@ -345,6 +393,25 @@ retailRouter.post('/sales', (req: Request, res: Response) => {
   });
 
   insertSaleTx();
+
+  if (stocktakeOverrideResult && frozenItems.length > 0) {
+    for (const fi of frozenItems) {
+      logAudit({
+        userId: stocktakeOverrideResult.manager_id,
+        action: 'STOCKTAKE_OVERRIDE_SALE',
+        entityType: 'SALE',
+        entityId: saleId,
+        oldValues: { item_id: fi.item_id, is_frozen: 1 },
+        newValues: {
+          manager_id: stocktakeOverrideResult.manager_id,
+          reason: stocktakeOverrideResult.reason,
+          override_token: overrideToken,
+          quantity_sold: fi.requested
+        },
+        ipAddress: req.ip
+      });
+    }
+  }
 
   logAudit({
     action: 'CREATE',
@@ -434,7 +501,7 @@ retailRouter.get('/sales/drafts', (_req: Request, res: Response) => {
 
 // 6. Cashier Approves Draft Sale
 retailRouter.post('/sales/:id/approve', (req: Request, res: Response) => {
-  const { cashier_id, payment_method } = req.body;
+  const { cashier_id, payment_method, manager_override_token, override_token } = req.body;
   const sale = db.prepare('SELECT * FROM sales WHERE id = ? AND deleted_at IS NULL').get(req.params.id) as any;
   if (!sale) return res.status(404).json({ error: 'Draft sale not found' });
   if (sale.status !== 'DRAFT') return res.status(400).json({ error: 'Sale is not in DRAFT state' });
@@ -469,28 +536,95 @@ retailRouter.post('/sales/:id/approve', (req: Request, res: Response) => {
     });
   }
 
+  // DEC-023 / DEC-030: Stocktake freeze guard before approving draft
+  const frozenDraftItems: any[] = [];
   for (const itm of saleItems) {
-    db.prepare('UPDATE items SET stock_quantity = stock_quantity - ?, last_sold_date = CURRENT_TIMESTAMP WHERE id = ?').run(itm.quantity, itm.item_id);
-    if (itm.imei) {
-      db.prepare("UPDATE imei_records SET status = 'SOLD', sold_date = CURRENT_TIMESTAMP, sold_sale_id = ? WHERE imei = ?").run(sale.id, itm.imei);
+    const itemRow = db.prepare('SELECT id, name, is_frozen FROM items WHERE id = ?').get(itm.item_id) as any;
+    if (itemRow && itemRow.is_frozen === 1) {
+      frozenDraftItems.push({
+        item_id: itm.item_id,
+        name: itemRow.name,
+        quantity: itm.quantity
+      });
     }
   }
 
-  db.prepare(`
-    UPDATE sales
-    SET status = 'COMPLETED',
-        cashier_id = ?,
-        payment_method = ?
-    WHERE id = ?
-  `).run(cashier_id || 'usr-cashier', payment_method || 'CASH', sale.id);
+  let draftOverrideResult: any = null;
+  const draftOverrideToken = manager_override_token || override_token;
 
-  if (sale.customer_id) {
+  if (frozenDraftItems.length > 0) {
+    if (!draftOverrideToken) {
+      return res.status(409).json({
+        error: 'ITEM_FROZEN_IN_STOCKTAKE',
+        message: `Item "${frozenDraftItems[0].name}" is currently frozen for active stocktake. Manager override required.`,
+        item_id: frozenDraftItems[0].item_id,
+        frozen_items: frozenDraftItems
+      });
+    }
+
+    draftOverrideResult = SalesRepository.validateAndConsumeOverrideToken(draftOverrideToken);
+    if (!draftOverrideResult.valid) {
+      return res.status(403).json({
+        error: 'INVALID_OVERRIDE_TOKEN',
+        message: draftOverrideResult.error || 'Invalid or expired manager override token'
+      });
+    }
+  }
+
+  const approveTx = db.transaction(() => {
+    for (const itm of saleItems) {
+      db.prepare('UPDATE items SET stock_quantity = stock_quantity - ?, last_sold_date = CURRENT_TIMESTAMP WHERE id = ?').run(itm.quantity, itm.item_id);
+
+      if (draftOverrideResult && frozenDraftItems.some(fi => fi.item_id === itm.item_id)) {
+        db.prepare(`
+          UPDATE stock_count_items
+          SET override_sales_quantity = override_sales_quantity + ?
+          WHERE item_id = ? AND status = 'FROZEN'
+        `).run(itm.quantity, itm.item_id);
+      }
+
+      if (itm.imei) {
+        db.prepare("UPDATE imei_records SET status = 'SOLD', sold_date = CURRENT_TIMESTAMP, sold_sale_id = ? WHERE imei = ?").run(sale.id, itm.imei);
+      }
+    }
+
     db.prepare(`
-      UPDATE customers
-      SET total_spent = total_spent + ?,
-          loyalty_points = loyalty_points + ?
+      UPDATE sales
+      SET status = 'COMPLETED',
+          cashier_id = ?,
+          payment_method = ?
       WHERE id = ?
-    `).run(sale.total, sale.loyalty_points_earned, sale.customer_id);
+    `).run(cashier_id || 'usr-cashier', payment_method || 'CASH', sale.id);
+
+    if (sale.customer_id) {
+      db.prepare(`
+        UPDATE customers
+        SET total_spent = total_spent + ?,
+            loyalty_points = loyalty_points + ?
+        WHERE id = ?
+      `).run(sale.total, sale.loyalty_points_earned, sale.customer_id);
+    }
+  });
+
+  approveTx();
+
+  if (draftOverrideResult && frozenDraftItems.length > 0) {
+    for (const fi of frozenDraftItems) {
+      logAudit({
+        userId: draftOverrideResult.manager_id,
+        action: 'STOCKTAKE_OVERRIDE_SALE',
+        entityType: 'SALE',
+        entityId: sale.id,
+        oldValues: { item_id: fi.item_id, is_frozen: 1 },
+        newValues: {
+          manager_id: draftOverrideResult.manager_id,
+          reason: draftOverrideResult.reason,
+          override_token: draftOverrideToken,
+          quantity_sold: fi.quantity
+        },
+        ipAddress: req.ip
+      });
+    }
   }
 
   logAudit({

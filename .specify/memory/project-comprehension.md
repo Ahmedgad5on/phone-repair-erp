@@ -331,7 +331,7 @@ Actual execution result from `server/test/api.test.ts`:
 | DEC ID | Architectural Decision | As-Built Code Reality | As-Decided Target State | Implementation Vehicle |
 |---|---|---|---|---|
 | **DEC-001** | Durability PRAGMA | `server/src/db/database.ts#L16` runs `synchronous = NORMAL` | Must change to `synchronous = FULL` to prevent committed transaction loss on power cuts | **ADR-001** / Phase 2 Setup |
-| **DEC-002** | Shift-Close Backup | Backup runs via periodic `runScheduledMaintenance()` in `server/src/index.ts#L278` | Must trigger `createDatabaseBackup('ShiftClose')` immediately inside `coreRouter.post('/shifts/close')` | **ADR-002** / Phase 2 Setup |
+| **DEC-002** | Shift-Close Backup | Implemented & merged (Feature 002, commits 5d5ef64/4a51286) | Triggers `await createDatabaseBackup()` immediately inside `coreRouter.post('/shifts/close')` before HTTP 200 response | **ADR-002** / Implemented (Feature 002) |
 | **DEC-003** | USB Failure Alert | USB mirror errors logged to console in `backup.service.ts#L98` | Must emit visible UI alert/banner and record warning in `audit_log` table | **ADR-003** / Phase 2 Setup |
 | **DEC-020** | LAN Security Perimeter | `server/src/middleware/subnet-guard.ts#L4-L32` runs fallback ALLOW (non-whitelisted IPs proceed via `next()`) | Default-DENY HTTP 403 for unregistered LAN IPs/tokens; strict CIDR check (`127.0.0.1`, `192.168.1.0/24`, `10.0.0.0/8`) | **ADR-020** / Network Spec |
 | **DEC-025** | Constitution Lifecycle | Unpopulated boilerplate template in `.specify/memory/constitution.md` | Clean Replace and Ratification as Version 1.0.0 in Phase 2 | **Phase 2 Foundation Gate** |
@@ -342,7 +342,7 @@ Actual execution result from `server/test/api.test.ts`:
 | **DEC-031** | Warranty Parts Expense | Warranty parts absorbed into repair ticket cost | Track parts consumed under warranty as reportable WARRANTY EXPENSE | **ADR-031** / Warranty Spec |
 | **DEC-032** | Warranty Window | Code lacks explicit window inheritance rules | Replaced part inherits remaining original repair warranty window without renewal | **ADR-032** / Warranty Spec |
 | **DEC-033** | Warranty Void Authority | Technician could theoretically change ticket status directly | Warranty void for physical damage requires mandatory MANAGER approval | **ADR-033** / Warranty Spec |
-| **DEC-034** | PO Approval Threshold | PO created directly with `status = 'ORDERED'` (`procurement.router.ts#L302`) | PO > 10,000 EGP (configurable) stays `PENDING_APPROVAL` until MANAGER/ADMIN approves | **ADR-034** / Procurement Spec |
+| **DEC-034** | PO Approval Threshold | Implemented & merged (Feature 002, commits 5d5ef64/4a51286) | PO > 10,000 EGP stays `PENDING_APPROVAL` until MANAGER/ADMIN approves via JWT token; blocked on GRN intake | **ADR-034** / Implemented (Feature 002) |
 | **DEC-035** | Rejected Supplier Returns | Only GRN rollback exists (`procurement.router.ts#L130`) | If supplier refuses return, move to `DEFECTIVE_SCRAP`, saleable only with MANAGER approval | **ADR-035** / Procurement Spec |
 | **DEC-036** | Parts Reservation | Inventory decremented only upon consumption (`repair.router.ts#L663`) | Logical `reserved_stock` activates immediately on `IN_REPAIR` transition | **ADR-036** / Repair Spec |
 

@@ -123,6 +123,9 @@ export function runMigrations() {
       min_limit INTEGER NOT NULL DEFAULT 2,
       warranty_days INTEGER DEFAULT 0,
       days_idle INTEGER DEFAULT 0,
+      is_frozen INTEGER DEFAULT 0,
+      freeze_reason TEXT,
+      frozen_at TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       deleted_at TEXT,
       CHECK (stock_quantity >= reserved_quantity)
@@ -290,7 +293,9 @@ export function runMigrations() {
       total_amount REAL DEFAULT 0.0,
       notes TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      received_at TEXT
+      received_at TEXT,
+      approved_by TEXT,
+      approved_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS purchase_order_items (
@@ -479,6 +484,19 @@ export function runMigrations() {
       notes TEXT,
       created_by_user_id TEXT REFERENCES users(id),
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS stock_count_items (
+      id TEXT PRIMARY KEY,
+      stock_count_id TEXT REFERENCES stock_counts(id) ON DELETE CASCADE,
+      item_id TEXT REFERENCES items(id) ON DELETE CASCADE,
+      pre_freeze_quantity INTEGER NOT NULL,
+      override_sales_quantity INTEGER DEFAULT 0,
+      counted_quantity INTEGER,
+      variance INTEGER,
+      status TEXT DEFAULT 'FROZEN',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      reconciled_at TEXT
     );
 
     -- 23. Procurement Management
