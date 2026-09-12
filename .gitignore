@@ -11,3 +11,5 @@ coverage/
 *.log
 .DS_Store
 Thumbs.db
+.specify/memory/scratch/
+server/backups/
