@@ -2103,25 +2103,26 @@ async function runExtendedSuites() {
   console.log('\n[Test Suite 72: Warranty Duration Matrix, Window Inheritance & 3-Day Grace (DEC-041, DEC-032, FR-007)]');
 
   // Helper: Traverse lifecycle states INTAKE -> DIAGNOSED -> IN_REPAIR -> READY -> DELIVERED
-  async function deliverRepairTicket(tktId: string, qaChecklist: any) {
+  async function deliverRepairTicket(tktId: string, qaChecklist: any, authHeaders?: Record<string, string>) {
+    const hdrs = { 'Content-Type': 'application/json', ...authHeaders };
     await fetch(`${baseUrl}/api/repair/tickets/${tktId}/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: hdrs,
       body: JSON.stringify({ status: 'DIAGNOSED' })
     });
     await fetch(`${baseUrl}/api/repair/tickets/${tktId}/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: hdrs,
       body: JSON.stringify({ status: 'IN_REPAIR' })
     });
     const readyRes = await fetch(`${baseUrl}/api/repair/tickets/${tktId}/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: hdrs,
       body: JSON.stringify({ status: 'READY', qa_checklist: qaChecklist })
     });
     const deliverRes = await fetch(`${baseUrl}/api/repair/tickets/${tktId}/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: hdrs,
       body: JSON.stringify({ status: 'DELIVERED' })
     });
     return { readyRes, deliverRes };
@@ -2423,7 +2424,17 @@ async function runExtendedSuites() {
   assert(oversizedData.code === 'EVIDENCE_TOO_LARGE', 'Vector 4b: Error code EVIDENCE_TOO_LARGE');
   fs.unlinkSync(oversizedPath);
 
-  // Vector 5: Manager with valid JPEG evidence → success + SHA-256 + audit log
+  // Vector 5: Path traversal via evidence_file → HTTP 400 EVIDENCE_FORMAT_INVALID
+  const traversalRes = await fetch(`${baseUrl}/api/repair/tickets/${screenTicketId}/void-warranty`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${voidMgrToken}` },
+    body: JSON.stringify({ reason: 'Path traversal attempt', evidence_file: '../../etc/passwd' })
+  });
+  const traversalData = (await traversalRes.json()) as any;
+  assert(traversalRes.status === 400, 'Vector 5a: Path traversal rejected with HTTP 400');
+  assert(traversalData.code === 'EVIDENCE_FORMAT_INVALID', 'Vector 5b: Error code EVIDENCE_FORMAT_INVALID');
+
+  // Vector 6: Manager with valid JPEG evidence → success + SHA-256 + audit log
   const validJpeg = Buffer.from('/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMCwsKCwsM', 'base64');
   const validBase64 = `data:image/jpeg;base64,${validJpeg.toString('base64')}`;
   const voidRes = await fetch(`${baseUrl}/api/repair/tickets/${screenTicketId}/void-warranty`, {
@@ -2432,22 +2443,30 @@ async function runExtendedSuites() {
     body: JSON.stringify({ reason: 'Customer physical damage — screen cracked by user', evidence_base64: validBase64 })
   });
   const voidData = (await voidRes.json()) as any;
-  assert(voidRes.status === 200, 'Vector 5a: Manager void-warranty succeeded with HTTP 200');
-  assert(voidData.warranty_status === 'VOIDED', 'Vector 5b: Ticket warranty_status set to VOIDED');
-  assert(voidData.evidence_hash && voidData.evidence_hash.length === 64, 'Vector 5c: SHA-256 hash recorded (64 chars)');
-  assert(voidData.approved_by === 'usr-admin', 'Vector 5d: Real manager actor ID recorded');
+  assert(voidRes.status === 200, 'Vector 6a: Manager void-warranty succeeded with HTTP 200');
+  assert(voidData.warranty_status === 'VOIDED', 'Vector 6b: Ticket warranty_status set to VOIDED');
+  assert(voidData.evidence_hash && voidData.evidence_hash.length === 64, 'Vector 6c: SHA-256 hash recorded (64 chars)');
+  assert(voidData.approved_by === 'usr-admin', 'Vector 6d: Real manager actor ID recorded');
 
   // Verify audit log
   const voidAudit = db.prepare("SELECT * FROM audit_logs WHERE action = 'WARRANTY_VOIDED' AND entity_id = ? ORDER BY created_at DESC LIMIT 1").get(screenTicketId) as any;
-  assert(voidAudit !== undefined, 'Vector 5e: WARRANTY_VOIDED audit log entry exists');
-  assert(voidAudit.user_id === 'usr-admin', 'Vector 5f: Audit log records real manager user_id');
+  assert(voidAudit !== undefined, 'Vector 6e: WARRANTY_VOIDED audit log entry exists');
+  assert(voidAudit.user_id === 'usr-admin', 'Vector 6f: Audit log records real manager user_id');
 
   // =========================================================================
   // TEST 74: Warranty Parts Operating Expense Tracking (DEC-031, FR-009)
   // =========================================================================
   console.log('\n[Test Suite 74: Warranty Parts Expense Tracking (DEC-031, FR-009)]');
 
-  // Create a warranty repair ticket with a consumed part
+  // Self-created SCREEN fixture — no dependence on external seed
+  const fix74Store = (db.prepare('SELECT id FROM stores LIMIT 1').get() as any).id;
+  const fix74ScreenId = 'itm-warranty-screen-' + uuidv4().substring(0, 6);
+  db.prepare(`
+    INSERT INTO items (id, store_id, sku, barcode, name, category, quality_grade, purchase_price, wholesale_price, retail_price, bulk_price, stock_quantity, min_limit, warranty_days)
+    VALUES (?, ?, ?, ?, 'iPhone 13 OLED Screen (Warranty Test)', 'SCREEN', 'TIER_1', 50000, 60000, 75000, 55000, 10, 1, 90)
+  `).run(fix74ScreenId, fix74Store, 'SKU-WSCR-' + uuidv4().substring(0, 4), 'BAR-WSCR-' + Date.now());
+
+  // Create a warranty repair ticket
   const warrantyPartTicketRes = await fetch(`${baseUrl}/api/repair/tickets`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -2466,43 +2485,56 @@ async function runExtendedSuites() {
   const warrantyPartTicketData = (await warrantyPartTicketRes.json()) as any;
   const warrantyPartTicketId = warrantyPartTicketData.ticket?.id || warrantyPartTicketData.id;
 
-  // Allocate a part to the ticket (simulate parts consumption)
-  const spareParts = db.prepare("SELECT id, purchase_price FROM items WHERE category = 'SCREEN' AND stock_quantity > 0 LIMIT 1").get() as any;
-  if (spareParts) {
-    db.prepare(`
-      INSERT INTO repair_consumed_parts (id, ticket_id, item_id, part_name, vendor_batch_code, cost_price, selling_price, is_reserved)
-      VALUES (?, ?, ?, 'Warranty Test Screen', 'WB-TEST', ?, ?, 0)
-    `).run(`rcp-${uuidv4().substring(0, 8)}`, warrantyPartTicketId, spareParts.id, spareParts.purchase_price || 500, spareParts.purchase_price || 500);
+  // Allocate the SCREEN part to the ticket (cost = 50000 piastres)
+  db.prepare(`
+    INSERT INTO repair_consumed_parts (id, ticket_id, item_id, part_name, vendor_batch_code, cost_price, selling_price, is_reserved)
+    VALUES (?, ?, ?, 'iPhone 13 OLED Screen', 'WB-WARRANTY', 50000, 0, 0)
+  `).run(`rcp-${uuidv4().substring(0, 8)}`, warrantyPartTicketId, fix74ScreenId);
 
-    // Deliver the ticket → triggers warranty expense posting
-    await deliverRepairTicket(warrantyPartTicketId, { screen: true });
+  // Deliver the ticket → triggers warranty expense posting
+  const adminAuthHdrs = { 'Authorization': `Bearer ${token}` };
+  await deliverRepairTicket(warrantyPartTicketId, { screen: true }, adminAuthHdrs);
 
-    // Verify warranty_cost_amount recorded
-    const wpTicket = db.prepare('SELECT warranty_cost_amount FROM repair_tickets WHERE id = ?').get(warrantyPartTicketId) as any;
-    assert(wpTicket.warranty_cost_amount > 0, `Vector 1a: warranty_cost_amount recorded (${wpTicket.warranty_cost_amount})`);
+  // Vector 1a: warranty_cost_amount recorded on ticket = 50000 piastres
+  const wpTicket = db.prepare('SELECT warranty_cost_amount FROM repair_tickets WHERE id = ?').get(warrantyPartTicketId) as any;
+  assert(wpTicket.warranty_cost_amount === 50000, `Vector 1a: warranty_cost_amount = 50000 piastres (actual: ${wpTicket.warranty_cost_amount})`);
 
-    // Verify journal entry: debit acc-5040, credit acc-1040
-    const jeEntry = db.prepare("SELECT * FROM journal_entries WHERE reference_id = ? AND description LIKE '%Warranty%' ORDER BY created_at DESC LIMIT 1").get(warrantyPartTicketId) as any;
-    assert(jeEntry !== undefined, 'Vector 1b: Journal entry created for warranty parts expense');
+  // Vector 1b: Journal entry created for warranty parts expense
+  const jeEntry = db.prepare("SELECT * FROM journal_entries WHERE reference_id = ? AND description LIKE '%Warranty%' ORDER BY created_at DESC LIMIT 1").get(warrantyPartTicketId) as any;
+  assert(jeEntry !== undefined, 'Vector 1b: Journal entry created for warranty parts expense');
 
+  // Vector 1c: Debit line to acc-5040 = 50000
+  if (jeEntry) {
     const debitLine = db.prepare("SELECT * FROM journal_entry_lines WHERE entry_id = ? AND account_id = 'acc-5040'").get(jeEntry.id) as any;
-    const creditLine = db.prepare("SELECT * FROM journal_entry_lines WHERE entry_id = ? AND account_id = 'acc-1040'").get(jeEntry.id) as any;
     assert(debitLine !== undefined, 'Vector 1c: Debit line to acc-5040 (Warranty Parts Expense) exists');
-    assert(creditLine !== undefined, 'Vector 1d: Credit line to acc-1040 (Spare Parts Inventory) exists');
-    assert(debitLine.debit === creditLine.credit, `Vector 1e: Double-entry balanced (debit=${debitLine.debit}, credit=${creditLine.credit})`);
+    if (debitLine) assert(debitLine.debit === 50000, `Vector 1c: Debit acc-5040 = 50000 piastres (actual: ${debitLine.debit})`);
 
-    // Verify customer invoice = 0 piastres
-    const invEntry = db.prepare("SELECT * FROM journal_entries WHERE reference_id = ? AND description LIKE '%Invoice%' ORDER BY created_at DESC LIMIT 1").get(warrantyPartTicketId) as any;
-    if (invEntry) {
-      const invTotal = db.prepare("SELECT SUM(debit) as total FROM journal_entry_lines WHERE entry_id = ? AND account_id LIKE '%1001%'").get(invEntry.id) as any;
-      assert(!invTotal || invTotal.total === 0, 'Vector 1f: Customer invoice total = 0 piastres for warranty coverage');
-    } else {
-      // No separate invoice entry — warranty ticket has no customer charge
-      assert(wpTicket.warranty_cost_amount > 0, 'Vector 1f: Warranty cost absorbed (no customer invoice)');
-    }
+    // Vector 1d: Credit line to acc-1040 = 50000
+    const creditLine = db.prepare("SELECT * FROM journal_entry_lines WHERE entry_id = ? AND account_id = 'acc-1040'").get(jeEntry.id) as any;
+    assert(creditLine !== undefined, 'Vector 1d: Credit line to acc-1040 (Spare Parts Inventory) exists');
+    if (creditLine) assert(creditLine.credit === 50000, `Vector 1d: Credit acc-1040 = 50000 piastres (actual: ${creditLine.credit})`);
+
+    // Vector 1e: Double-entry balanced
+    if (debitLine && creditLine) assert(debitLine.debit === creditLine.credit, `Vector 1e: Double-entry balanced (debit=${debitLine.debit}, credit=${creditLine.credit})`);
   } else {
-    console.log('  ⚠ Skipping Part 1 vectors: no SCREEN items in inventory');
+    assert(false, 'Vector 1c: Debit line to acc-5040 (Warranty Parts Expense) exists');
+    assert(false, 'Vector 1d: Credit line to acc-1040 (Spare Parts Inventory) exists');
+    assert(false, 'Vector 1e: Double-entry balanced');
   }
+
+  // Vector 1f: Customer invoice = 0 piastres (warranty coverage — no charge)
+  const invEntry = db.prepare("SELECT * FROM journal_entries WHERE reference_id = ? AND description LIKE '%Invoice%' ORDER BY created_at DESC LIMIT 1").get(warrantyPartTicketId) as any;
+  if (invEntry) {
+    const invTotal = db.prepare("SELECT SUM(debit) as total FROM journal_entry_lines WHERE entry_id = ? AND account_id LIKE '%1001%'").get(invEntry.id) as any;
+    assert(!invTotal || invTotal.total === 0, 'Vector 1f: Customer invoice total = 0 piastres for warranty coverage');
+  } else {
+    assert(wpTicket.warranty_cost_amount > 0, 'Vector 1f: Warranty cost absorbed (no customer invoice)');
+  }
+
+  // Vector 1g: Audit log records real actor ID (not 'system')
+  const expenseAudit = db.prepare("SELECT * FROM audit_logs WHERE action = 'WARRANTY_EXPENSE_POSTED' AND entity_id = ? ORDER BY created_at DESC LIMIT 1").get(warrantyPartTicketId) as any;
+  assert(expenseAudit !== undefined, 'Vector 1g: WARRANTY_EXPENSE_POSTED audit log entry exists');
+  if (expenseAudit) assert(expenseAudit.user_id !== 'system', `Vector 1g: Audit log records real actor (actual: ${expenseAudit.user_id})`);
 
   // Close ephemeral test server
   testServer.close();

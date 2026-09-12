@@ -284,9 +284,8 @@ repairRouter.patch(['/tickets/:id/status', '/:id/status'], (req: Request, res: R
     if (ticket.is_warranty_repair) {
       // Sum cost of parts consumed on this ticket
       const partsCost = db.prepare(`
-        SELECT COALESCE(SUM(COALESCE(i.cost_price, 0) * cp.quantity), 0) as total_cost
+        SELECT COALESCE(SUM(cp.cost_price), 0) as total_cost
         FROM repair_consumed_parts cp
-        LEFT JOIN items i ON cp.item_id = i.id
         WHERE cp.ticket_id = ?
       `).get(ticket.id) as { total_cost: number };
 
@@ -300,7 +299,11 @@ repairRouter.patch(['/tickets/:id/status', '/:id/status'], (req: Request, res: R
         const maxEntry = db.prepare('SELECT COALESCE(MAX(entry_number), 1000) as maxNum FROM journal_entries').get() as { maxNum: number };
         const entryNumber = maxEntry.maxNum + 1;
         const entryId = `je-${uuidv4().substring(0, 8)}`;
-        const actorId = (req as any).user?.userId || 'system';
+        let actorId = (req as any).user?.userId;
+        if (!actorId) {
+          const fallbackUser = db.prepare("SELECT id FROM users WHERE role = 'SuperAdmin' LIMIT 1").get() as any;
+          actorId = fallbackUser?.id || 'system';
+        }
 
         const expenseTx = db.transaction(() => {
           db.prepare(`
