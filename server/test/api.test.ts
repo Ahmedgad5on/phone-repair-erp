@@ -2006,6 +2006,50 @@ async function runExtendedSuites() {
   const sciAfterDraft = db.prepare('SELECT override_sales_quantity FROM stock_count_items WHERE id = ?').get(sciRecord.id) as any;
   assert(sciAfterDraft.override_sales_quantity === 4, 'Vector 3f: stock_count_items override_sales_quantity updated to 4 (3 direct + 1 draft)');
 
+  // Vector 3g (G1 Evidence Gap): Token preservation on pre-validation failure
+  // If checkout fails with insufficient stock + valid override token -> HTTP 409 AND token remains consumable (next attempt with available stock succeeds)
+  const testItem2Id = 'itm-freeze2-' + uuidv4().slice(0, 6);
+  db.prepare(`
+    INSERT INTO items (id, store_id, warehouse_id, sku, name, category, purchase_price, retail_price, stock_quantity, reserved_quantity, is_frozen)
+    VALUES (?, ?, ?, ?, 'Anker USB Cable', 'ACCESSORY', 50, 100, 5, 0, 1)
+  `).run(testItem2Id, defaultStore.id, testWhId, 'SKU-F2-' + testItem2Id.slice(-4));
+
+  const preserveTokenObj = SalesRepository.generateOverrideToken(managerUserId, 'Testing token preservation on insufficient stock');
+  const preserveToken = preserveTokenObj.token;
+
+  // Step 1: Attempt checkout of 99 units (exceeds stock of 5) with valid token
+  const overOrderRes = await fetch(`${baseUrl}/api/retail/sales`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_name: 'Over-order Customer',
+      manager_override_token: preserveToken,
+      items: [{ item_id: testItem2Id, item_name: 'Anker USB Cable', quantity: 99, unit_price: 100 }]
+    })
+  });
+  const overOrderData = (await overOrderRes.json()) as any;
+  assert(overOrderRes.status === 409, 'Vector 3g.1: Checkout with insufficient stock rejected with HTTP 409');
+  assert(overOrderData.error === 'INSUFFICIENT_AVAILABLE_STOCK', 'Vector 3g.2: Rejected with INSUFFICIENT_AVAILABLE_STOCK');
+
+  // Verify token uses_count is still 0 (token was preserved, NOT burned)
+  const unburnedToken = db.prepare('SELECT uses_count FROM manager_override_tokens WHERE token = ?').get(preserveToken) as any;
+  assert(unburnedToken && unburnedToken.uses_count === 0, 'Vector 3g.3: Override token was NOT burned on stock rejection (uses_count remains 0)');
+
+  // Step 2: Next attempt with same token + available stock (2 units <= 5) succeeds with HTTP 201
+  const validOrderRes = await fetch(`${baseUrl}/api/retail/sales`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_name: 'Valid Customer',
+      manager_override_token: preserveToken,
+      items: [{ item_id: testItem2Id, item_name: 'Anker USB Cable', quantity: 2, unit_price: 100 }]
+    })
+  });
+  assert(validOrderRes.status === 201, 'Vector 3g.4: Subsequent checkout with same token and available stock succeeds with HTTP 201');
+
+  const consumedToken = db.prepare('SELECT uses_count FROM manager_override_tokens WHERE token = ?').get(preserveToken) as any;
+  assert(consumedToken && consumedToken.uses_count === 1, 'Vector 3g.5: Override token consumed on successful sale (uses_count = 1)');
+
   // Vector 4: Count reconciliation settles against pre-freeze book quantity adjusted by override sales
   // Formula per DEC-030 & ADR-030:
   // pre_freeze_quantity = 50
