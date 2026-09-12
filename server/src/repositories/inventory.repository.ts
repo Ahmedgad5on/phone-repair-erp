@@ -113,45 +113,166 @@ export class InventoryRepository {
     `).all(itemId);
   }
 
-  // Cycle Counting Variance & Reconciliation (Dev Proposal 19)
-  static executeCycleCount(data: { warehouse_id: string; counts: Array<{ item_id: string; counted_quantity: number }>; counter_id?: string; notes?: string }) {
-    const results = [];
-    const updateStmt = db.prepare('UPDATE items SET stock_quantity = ? WHERE id = ?');
-    const countLogStmt = db.prepare(`
-      INSERT INTO stock_counts (id, warehouse_id, count_date, status, notes)
-      VALUES (?, ?, CURRENT_TIMESTAMP, 'COMPLETED', ?)
+  // Start Cycle Count Session & Freeze Items (DEC-023 / DEC-030)
+  static startCycleCount(data: {
+    warehouse_id: string;
+    item_ids: string[];
+    counter_id?: string;
+    notes?: string;
+  }) {
+    const countBatchId = `cnt-${uuidv4().substring(0, 8)}`;
+    const now = new Date().toISOString();
+
+    db.prepare(`
+      INSERT INTO stock_counts (id, warehouse_id, count_date, status, notes, created_by_user_id)
+      VALUES (?, ?, ?, 'IN_PROGRESS', ?, ?)
+    `).run(countBatchId, data.warehouse_id, now, data.notes || 'Periodic cycle count with sales freeze', data.counter_id || 'usr-admin');
+
+    const insertSci = db.prepare(`
+      INSERT INTO stock_count_items (id, stock_count_id, item_id, pre_freeze_quantity, override_sales_quantity, status, created_at)
+      VALUES (?, ?, ?, ?, 0, 'FROZEN', ?)
+    `);
+    const freezeItemStmt = db.prepare(`
+      UPDATE items
+      SET is_frozen = 1,
+          freeze_reason = ?,
+          frozen_at = ?
+      WHERE id = ?
     `);
 
-    const countBatchId = `cnt-${uuidv4().substring(0, 8)}`;
-    countLogStmt.run(countBatchId, data.warehouse_id, data.notes || 'Routine blind cycle count');
+    const frozenItems: Array<{ item_id: string; name: string; pre_freeze_quantity: number }> = [];
 
-    for (const c of data.counts) {
-      const currentItem = db.prepare('SELECT id, name, stock_quantity, purchase_price FROM items WHERE id = ?').get(c.item_id) as any;
-      if (!currentItem) continue;
+    const freezeTx = db.transaction(() => {
+      for (const itemId of data.item_ids) {
+        const itm = db.prepare('SELECT id, name, stock_quantity FROM items WHERE id = ?').get(itemId) as any;
+        if (itm) {
+          const sciId = `sci-${uuidv4().substring(0, 8)}`;
+          insertSci.run(sciId, countBatchId, itm.id, itm.stock_quantity, now);
+          freezeItemStmt.run(`Active cycle count batch ${countBatchId}`, now, itm.id);
+          frozenItems.push({
+            item_id: itm.id,
+            name: itm.name,
+            pre_freeze_quantity: itm.stock_quantity
+          });
+        }
+      }
+    });
 
-      const expected = currentItem.stock_quantity;
-      const counted = c.counted_quantity;
-      const variance = counted - expected;
-      const discrepancyValue = variance * currentItem.purchase_price;
+    freezeTx.immediate();
 
-      // Adjust to actual counted physical stock
-      updateStmt.run(counted, c.item_id);
+    return {
+      cycleCountId: countBatchId,
+      status: 'IN_PROGRESS',
+      frozenItemsCount: frozenItems.length,
+      frozenItems
+    };
+  }
 
-      results.push({
-        item_id: c.item_id,
-        item_name: currentItem.name,
-        expected,
-        counted,
-        variance,
-        discrepancyValue,
-        reconciled: true
-      });
+  // Cycle Counting Variance & Reconciliation (Dev Proposal 19 / DEC-023 / DEC-030)
+  static executeCycleCount(data: {
+    warehouse_id: string;
+    cycle_count_id?: string;
+    counts: Array<{ item_id: string; counted_quantity: number }>;
+    counter_id?: string;
+    notes?: string;
+  }) {
+    const results = [];
+    const updateItemStmt = db.prepare(`
+      UPDATE items
+      SET stock_quantity = ?,
+          is_frozen = 0,
+          freeze_reason = NULL,
+          frozen_at = NULL
+      WHERE id = ?
+    `);
+    const updateSciStmt = db.prepare(`
+      UPDATE stock_count_items
+      SET counted_quantity = ?,
+          variance = ?,
+          status = 'RECONCILED',
+          reconciled_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `);
+
+    let countBatchId = data.cycle_count_id;
+    if (!countBatchId) {
+      countBatchId = `cnt-${uuidv4().substring(0, 8)}`;
+      db.prepare(`
+        INSERT INTO stock_counts (id, warehouse_id, count_date, status, notes, created_by_user_id)
+        VALUES (?, ?, CURRENT_TIMESTAMP, 'COMPLETED', ?, ?)
+      `).run(countBatchId, data.warehouse_id, data.notes || 'Routine blind cycle count', data.counter_id || 'usr-admin');
+    } else {
+      db.prepare(`
+        UPDATE stock_counts
+        SET status = 'COMPLETED',
+            notes = COALESCE(?, notes)
+        WHERE id = ?
+      `).run(data.notes || null, countBatchId);
     }
+
+    const reconcileTx = db.transaction(() => {
+      for (const c of data.counts) {
+        const currentItem = db.prepare('SELECT id, name, stock_quantity, purchase_price FROM items WHERE id = ?').get(c.item_id) as any;
+        if (!currentItem) continue;
+
+        // Check if item was frozen in an active cycle count session
+        const sci = (countBatchId
+          ? db.prepare(`
+              SELECT * FROM stock_count_items
+              WHERE item_id = ? AND stock_count_id = ? AND status = 'FROZEN'
+              ORDER BY created_at DESC LIMIT 1
+            `).get(c.item_id, countBatchId)
+          : null) || db.prepare(`
+          SELECT * FROM stock_count_items
+          WHERE item_id = ? AND status = 'FROZEN'
+          ORDER BY created_at DESC LIMIT 1
+        `).get(c.item_id) as any;
+
+        // Per DEC-030 & ADR-030:
+        // When manager override sales completed during the freeze, the count reconciliation baseline
+        // settles against the pre-freeze book quantity adjusted by subtracting override sales.
+        let expected = currentItem.stock_quantity;
+        let preFreezeQuantity = currentItem.stock_quantity;
+        let overrideSalesQuantity = 0;
+
+        if (sci) {
+          preFreezeQuantity = sci.pre_freeze_quantity;
+          overrideSalesQuantity = sci.override_sales_quantity || 0;
+          expected = sci.pre_freeze_quantity - overrideSalesQuantity;
+        }
+
+        const counted = c.counted_quantity;
+        const variance = counted - expected;
+        const discrepancyValue = variance * currentItem.purchase_price;
+
+        // Adjust to actual counted physical stock and unfreeze item
+        updateItemStmt.run(counted, c.item_id);
+
+        if (sci) {
+          updateSciStmt.run(counted, variance, sci.id);
+        }
+
+        results.push({
+          item_id: c.item_id,
+          item_name: currentItem.name,
+          pre_freeze_quantity: preFreezeQuantity,
+          override_sales_quantity: overrideSalesQuantity,
+          expected,
+          counted,
+          variance,
+          discrepancyValue,
+          reconciled: true
+        });
+      }
+    });
+
+    reconcileTx.immediate();
 
     return {
       cycleCountId: countBatchId,
       itemsReconciled: results.length,
-      details: results
+      details: results,
+      results
     };
   }
 

@@ -11,6 +11,7 @@ import { migration009 } from './009_spare_parts_wholesale_25_ideas';
 import { migration010 } from './010_fintech_treasury_25_ideas';
 import { migration011 } from './011_add_reserved_quantity_to_items';
 import { migration012 } from './012_add_po_approval_columns';
+import { migration013 } from './013_add_stocktake_freeze';
 
 export type { Migration };
 
@@ -26,7 +27,8 @@ export const migrations: Migration[] = [
   migration009,
   migration010,
   migration011,
-  migration012
+  migration012,
+  migration013
 ];
 
 export default migrations;

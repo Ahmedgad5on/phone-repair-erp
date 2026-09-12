@@ -1838,6 +1838,216 @@ async function runExtendedSuites() {
   assert(shiftAuditLogs.length > 0, 'Vector 2a: Synchronous audit log recorded SHIFT_CLOSE_BACKUP with snapshot entityId');
   assert(shiftAuditLogs[0].user_id === adminUser.id, 'Vector 2b: Audit log recorded cashier user ID (never system)');
 
+  // =========================================================================
+  // TEST 71: Stocktake Sales Freeze, Manager Override & Reconciliation (DEC-023, DEC-030)
+  // =========================================================================
+  console.log('\n[Test Suite 71: Stocktake Sales Freeze, Manager Override & Reconciliation (DEC-023, DEC-030)]');
+
+  // Setup: Create a distinct test warehouse and accessory item with initial stock of 50
+  const testWhId = 'wh-stocktake-' + uuidv4().slice(0, 6);
+  db.prepare(`
+    INSERT INTO warehouses (id, name, code, is_default, is_active)
+    VALUES (?, 'Stocktake Central Lab', ?, 0, 1)
+  `).run(testWhId, 'WH-' + testWhId.slice(-4));
+
+  const testFreezeItemId = 'itm-freeze-' + uuidv4().slice(0, 6);
+  const initialStock = 50;
+  db.prepare(`
+    INSERT INTO items (id, store_id, warehouse_id, sku, name, category, purchase_price, retail_price, stock_quantity, reserved_quantity)
+    VALUES (?, ?, ?, ?, 'Anker 65W GaN Fast Charger Lot', 'ACCESSORY', 500, 850, ?, 0)
+  `).run(testFreezeItemId, defaultStore.id, testWhId, 'SKU-FREEZE-' + testFreezeItemId.slice(-4), initialStock);
+
+  // Vector 0: Start cycle count session -> freezes testFreezeItemId (is_frozen = 1)
+  const startCountRes = await fetch(`${baseUrl}/api/inventory/cycle-counts/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      warehouse_id: testWhId,
+      item_ids: [testFreezeItemId],
+      counter_id: adminUser.id,
+      notes: 'Mid-quarter physical stocktake'
+    })
+  });
+  const startCountData = (await startCountRes.json()) as any;
+  assert(startCountRes.status === 201, 'Vector 0a: Started cycle count session with HTTP 201');
+  const cycleCountId = startCountData.cycleCountId;
+
+  const itemAfterFreeze = db.prepare('SELECT is_frozen, stock_quantity FROM items WHERE id = ?').get(testFreezeItemId) as any;
+  assert(itemAfterFreeze.is_frozen === 1, 'Vector 0b: Item status successfully updated to is_frozen = 1');
+
+  // Vector 1a/1b: Frozen item direct checkout without override token strictly rejected with HTTP 409 Conflict
+  const frozenCheckoutRes = await fetch(`${baseUrl}/api/retail/sales`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_name: 'Walk-in Shopper',
+      items: [{ item_id: testFreezeItemId, item_name: 'Anker Charger', quantity: 2, unit_price: 850 }]
+    })
+  });
+  const frozenCheckoutData = (await frozenCheckoutRes.json()) as any;
+  assert(frozenCheckoutRes.status === 409, 'Vector 1a: Direct checkout of frozen item rejected with HTTP 409');
+  assert(frozenCheckoutData.error === 'ITEM_FROZEN_IN_STOCKTAKE', 'Vector 1b: Server returned error code ITEM_FROZEN_IN_STOCKTAKE per DEC-023');
+
+  // Vector 1c/1d/1e (Duplicate Route Guard): Creating a draft sale and approving it without override token is ALSO rejected with HTTP 409
+  const draftSaleRes = await fetch(`${baseUrl}/api/retail/sales`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      is_draft: true,
+      customer_name: 'Draft Customer',
+      items: [{ item_id: testFreezeItemId, item_name: 'Anker Charger', quantity: 1, unit_price: 850 }]
+    })
+  });
+  const draftSaleData = (await draftSaleRes.json()) as any;
+  assert(draftSaleRes.status === 201, 'Vector 1c: Draft sale with frozen item created in DRAFT state');
+
+  const draftApproveNoTokenRes = await fetch(`${baseUrl}/api/retail/sales/${draftSaleData.saleId}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cashier_id: adminUser.id })
+  });
+  const draftApproveNoTokenData = (await draftApproveNoTokenRes.json()) as any;
+  assert(draftApproveNoTokenRes.status === 409, 'Vector 1d: Draft approval without override token rejected with HTTP 409');
+  assert(draftApproveNoTokenData.error === 'ITEM_FROZEN_IN_STOCKTAKE', 'Vector 1e: Draft approve returned error code ITEM_FROZEN_IN_STOCKTAKE');
+
+  // Vector 2: Manager generates valid override OTP -> Override checkout succeeds with HTTP 201 & synchronous audit trail
+  const managerUserId = 'usr-mgr-' + uuidv4().slice(0, 6);
+  db.prepare(`
+    INSERT INTO users (id, store_id, username, password, name, role)
+    VALUES (?, ?, ?, 'hash', 'Manager Adel', 'Manager')
+  `).run(managerUserId, defaultStore.id, 'mgr_' + managerUserId.slice(-4));
+
+  const overrideTokenObj = SalesRepository.generateOverrideToken(managerUserId, 'Urgent customer VIP replacement during stocktake');
+  const validToken = overrideTokenObj.token;
+
+  const overrideSaleRes = await fetch(`${baseUrl}/api/retail/sales`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_name: 'VIP Client',
+      manager_override_token: validToken,
+      items: [{ item_id: testFreezeItemId, item_name: 'Anker Charger', quantity: 3, unit_price: 850 }]
+    })
+  });
+  const overrideSaleData = (await overrideSaleRes.json()) as any;
+  assert(overrideSaleRes.status === 201, 'Vector 2a: Manager override sale succeeded with HTTP 201');
+  assert(overrideSaleData.status === 'COMPLETED', 'Vector 2b: Sale status completed');
+
+  // Verify stock was decremented from 50 to 47
+  const itemAfterSale = db.prepare('SELECT stock_quantity, is_frozen FROM items WHERE id = ?').get(testFreezeItemId) as any;
+  assert(itemAfterSale.stock_quantity === 47, 'Vector 2c: Stock quantity safely decremented to 47');
+  assert(itemAfterSale.is_frozen === 1, 'Vector 2d: Item remains frozen during ongoing cycle count');
+
+  // Verify stock_count_items recorded override_sales_quantity = 3
+  const sciRecord = db.prepare(`
+    SELECT * FROM stock_count_items
+    WHERE stock_count_id = ? AND item_id = ?
+  `).get(cycleCountId, testFreezeItemId) as any;
+  assert(sciRecord.override_sales_quantity === 3, 'Vector 2e: stock_count_items recorded override_sales_quantity = 3');
+
+  // Verify audit log has STOCKTAKE_OVERRIDE_SALE with real manager actor ID (never system)
+  const overrideAuditLogs = db.prepare(`
+    SELECT * FROM audit_logs
+    WHERE action = 'STOCKTAKE_OVERRIDE_SALE' AND user_id = ?
+    ORDER BY created_at DESC
+  `).all(managerUserId) as any[];
+  assert(overrideAuditLogs.length > 0, 'Vector 2f: Synchronous audit trail recorded STOCKTAKE_OVERRIDE_SALE');
+  assert(overrideAuditLogs[0].user_id === managerUserId, 'Vector 2g: Audit trail records real manager actor ID');
+
+  // Vector 3 (Adversarial Replay): Replay attempt with already-consumed override token strictly rejected with HTTP 403
+  const replayAttemptRes = await fetch(`${baseUrl}/api/retail/sales`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_name: 'Attacker Replay',
+      manager_override_token: validToken, // Reused consumed token
+      items: [{ item_id: testFreezeItemId, item_name: 'Anker Charger', quantity: 1, unit_price: 850 }]
+    })
+  });
+  const replayAttemptData = (await replayAttemptRes.json()) as any;
+  assert(replayAttemptRes.status === 403, 'Vector 3a: Replay attempt with consumed token strictly rejected with HTTP 403');
+  assert(replayAttemptData.error === 'INVALID_OVERRIDE_TOKEN', 'Vector 3b: Server returned INVALID_OVERRIDE_TOKEN');
+
+  // Vector 3c: Fake / non-existent token also rejected with HTTP 403
+  const fakeTokenRes = await fetch(`${baseUrl}/api/retail/sales`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_name: 'Attacker Fake Token',
+      manager_override_token: '999999',
+      items: [{ item_id: testFreezeItemId, item_name: 'Anker Charger', quantity: 1, unit_price: 850 }]
+    })
+  });
+  assert(fakeTokenRes.status === 403, 'Vector 3c: Non-existent override token strictly rejected with HTTP 403');
+
+  // Vector 3d (Draft Route Replay Guard): Replay on draft approval route also rejected with HTTP 403
+  const draftApproveReplayRes = await fetch(`${baseUrl}/api/retail/sales/${draftSaleData.saleId}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      cashier_id: adminUser.id,
+      manager_override_token: validToken
+    })
+  });
+  assert(draftApproveReplayRes.status === 403, 'Vector 3d: Replay on draft approval route strictly rejected with HTTP 403');
+
+  // Vector 3e: Valid override token on draft approval succeeds and tracks override sales
+  const draftOverrideTokenObj = SalesRepository.generateOverrideToken(managerUserId, 'Customer draft approved during stocktake');
+  const draftApproveSuccessRes = await fetch(`${baseUrl}/api/retail/sales/${draftSaleData.saleId}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      cashier_id: adminUser.id,
+      manager_override_token: draftOverrideTokenObj.token
+    })
+  });
+  assert(draftApproveSuccessRes.status === 200, 'Vector 3e: Draft approval with valid override token succeeded with HTTP 200');
+
+  const sciAfterDraft = db.prepare('SELECT override_sales_quantity FROM stock_count_items WHERE id = ?').get(sciRecord.id) as any;
+  assert(sciAfterDraft.override_sales_quantity === 4, 'Vector 3f: stock_count_items override_sales_quantity updated to 4 (3 direct + 1 draft)');
+
+  // Vector 4: Count reconciliation settles against pre-freeze book quantity adjusted by override sales
+  // Formula per DEC-030 & ADR-030:
+  // pre_freeze_quantity = 50
+  // override_sales_quantity = 4
+  // expected = pre_freeze_quantity - override_sales_quantity = 50 - 4 = 46
+  // Counted physical quantity = 45 (physical shortage of 1 unit)
+  // variance = counted - expected = 45 - 46 = -1
+  const reconcileRes = await fetch(`${baseUrl}/api/inventory/cycle-count-reconcile`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      warehouse_id: testWhId,
+      cycle_count_id: cycleCountId,
+      counts: [
+        { item_id: testFreezeItemId, counted_quantity: 45 }
+      ],
+      notes: 'Final physical stock count reconciliation'
+    })
+  });
+  const reconcileData = (await reconcileRes.json()) as any;
+  assert(reconcileRes.status === 201, 'Vector 4a: Cycle count reconciliation succeeded with HTTP 201');
+  assert(reconcileData.itemsReconciled === 1, 'Vector 4b: Reconciled 1 item');
+
+  const reconciledItem = reconcileData.results[0];
+  assert(reconciledItem.pre_freeze_quantity === 50, 'Vector 4c: Baseline recorded pre_freeze_quantity = 50');
+  assert(reconciledItem.override_sales_quantity === 4, 'Vector 4d: Recorded override_sales_quantity = 4');
+  assert(reconciledItem.expected === 46, 'Vector 4e: Expected count settled to 46 (50 pre-freeze - 4 override sales)');
+  assert(reconciledItem.counted === 45, 'Vector 4f: Counted physical quantity is 45');
+  assert(reconciledItem.variance === -1, 'Vector 4g: Variance correctly calculated as -1 (45 - 46)');
+
+  // Verify item is now unfrozen in database and stock quantity updated to physical count (45)
+  const itemAfterReconcile = db.prepare('SELECT stock_quantity, is_frozen, freeze_reason, frozen_at FROM items WHERE id = ?').get(testFreezeItemId) as any;
+  assert(itemAfterReconcile.stock_quantity === 45, 'Vector 4h: Item stock_quantity updated to actual physical count 45');
+  assert(itemAfterReconcile.is_frozen === 0, 'Vector 4i: Item successfully unfrozen (is_frozen = 0) per DEC-023');
+  assert(itemAfterReconcile.freeze_reason === null, 'Vector 4j: Freeze reason cleared to null');
+
+  // Verify stock_count_items record updated to RECONCILED
+  const finalizedSci = db.prepare('SELECT status, variance, counted_quantity FROM stock_count_items WHERE id = ?').get(sciRecord.id) as any;
+  assert(finalizedSci.status === 'RECONCILED', 'Vector 4k: stock_count_items status transitioned to RECONCILED');
+  assert(finalizedSci.variance === -1, 'Vector 4l: stock_count_items variance recorded as -1');
+  assert(finalizedSci.counted_quantity === 45, 'Vector 4m: stock_count_items counted_quantity recorded as 45');
+
   // Close ephemeral test server
   testServer.close();
 }

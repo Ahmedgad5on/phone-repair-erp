@@ -554,14 +554,31 @@ inventoryRouter.post('/batches', (req: Request, res: Response) => {
   res.status(201).json({ success: true, id, message: 'Stock batch added successfully' });
 });
 
+inventoryRouter.post('/cycle-counts/start', (req: Request, res: Response) => {
+  const { warehouse_id, item_ids, counter_id, notes } = req.body;
+  if (!warehouse_id || !Array.isArray(item_ids) || item_ids.length === 0) {
+    return res.status(400).json({ error: 'warehouse_id and item_ids array are required' });
+  }
+
+  const result = InventoryRepository.startCycleCount({
+    warehouse_id,
+    item_ids,
+    counter_id,
+    notes
+  });
+
+  res.status(201).json(result);
+});
+
 inventoryRouter.post('/cycle-count-reconcile', (req: Request, res: Response) => {
-  const { warehouse_id, counts, notes, counter_id } = req.body;
+  const { warehouse_id, cycle_count_id, counts, notes, counter_id } = req.body;
   if (!warehouse_id || !Array.isArray(counts) || counts.length === 0) {
     return res.status(400).json({ error: 'warehouse_id and counts array are required' });
   }
 
   const result = InventoryRepository.executeCycleCount({
     warehouse_id,
+    cycle_count_id,
     counts,
     counter_id,
     notes
