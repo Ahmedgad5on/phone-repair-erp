@@ -13,7 +13,7 @@ export const db = new Database(dbPath);
 
 // Enable SQLite Write-Ahead Logging for high concurrency & performance (Maintenance Proposal 43)
 db.pragma('journal_mode = WAL');
-db.pragma('synchronous = NORMAL');
+db.pragma('synchronous = FULL'); // FULL fsync on every commit per DEC-001/ADR-001
 db.pragma('cache_size = -64000'); // 64 MB cache
 db.pragma('busy_timeout = 5000'); // 5s timeout on contention
 db.pragma('temp_store = MEMORY');

@@ -683,7 +683,7 @@ console.log('\n[Test Suite 52: Tuned SQLite WAL Pragmas & Concurrency Settings]'
 const journalMode = (db.prepare('PRAGMA journal_mode;').get() as any).journal_mode;
 const synchronous = (db.prepare('PRAGMA synchronous;').get() as any).synchronous;
 assert(journalMode.toLowerCase() === 'wal', `SQLite journal mode is WAL (current: ${journalMode})`);
-assert(synchronous === 1, `SQLite synchronous mode tuned to NORMAL (1) for SSD safety (current: ${synchronous})`);
+assert(synchronous === 2, `SQLite synchronous mode enforced to FULL (2 is SQLite integer for FULL) for power outage durability per DEC-001/ADR-001 (current: ${synchronous})`);
 
 async function runExtendedSuites() {
   const testApp = express();
