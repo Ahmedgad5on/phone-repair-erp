@@ -33,11 +33,25 @@
   3. `RISK-010`: Logical Spare Part Reservation & POS Contention Defense (Test Suite 68).
 - **As-Built Inventory Discovered:** `GOOGLE_REVIEW_FOLLOWUP` notification type identified in `whatsapp.service.ts` and `CrmView.tsx`.
 
+### 1.3 Feature 002 Financial Governance & Operational Continuity Completion
+- **Feature:** `specs/002-financial-governance-continuity` (Financial Governance & Operational Continuity)
+- **Branch:** `feature/002-financial-governance-continuity` merged into `main` (`--no-ff`, commit `e66b449`)
+- **Automated Tests Delivered:** +58 tests (Baseline elevated from 190 to 248 passing tests across 71 suites, 0 failures).
+- **Tasks Delivered:**
+  1. `TASK-2.1`: Purchase Order Approval Ceiling (> 10,000 EGP) & Dual-State Workflow (`DEC-034`, Test Suite 69).
+  2. `TASK-2.2`: Automated Shift-Close Backup Snapshot & Failure Blocking (`DEC-002`, `DEC-044`, Test Suite 70).
+  3. `TASK-2.3`: Stocktake Sales Freeze, Manager Override OTP, & Physical Reconciliation (`DEC-023`, `DEC-030`, Test Suite 71).
+- **Risks Retired to Mitigated:**
+  1. `RISK-008`: Automated Shift-Close Database Backup Snapshot immediately preceding response (evidenced by Test Suite 70 passing execution).
+- **Decisions Ratified:**
+  1. `DEC-044`: Shift-close backup failure strictly blocks close (HTTP 500) + `SHIFT_CLOSE_BACKUP_FAILED` audit event + red banner.
+
 > [!NOTE]
 > **Future Candidates & Operational Debt (Recorded per Owner Guidance — NOT in Active Scope):**  
 > 1. `AUTH_SECRET` vs `JWT_SECRET` dual-path — possible consolidation / enforce no-fallback in production. Requires separate future owner gate.
-> 2. Test-run backup suppression — suppress or clean up automated test snapshots to avoid test-run backup accumulation (e.g. 62 backups in test runs).
+> 2. Test-run backup suppression — suppress or clean up automated test snapshots to avoid test-run backup accumulation (e.g. 84 backups in test runs).
 > 3. Protect `/api/docs*` behind workstation token gate.
+> 4. Audit table structural unification (`audit_log` vs `audit_logs`) — scheduled for maintenance refactor.
 
 ---
 
