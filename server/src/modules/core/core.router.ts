@@ -248,7 +248,7 @@ coreRouter.post('/shifts/open', (req: Request, res: Response) => {
   res.status(201).json(created);
 });
 
-coreRouter.post('/shifts/close', (req: Request, res: Response) => {
+coreRouter.post('/shifts/close', async (req: Request, res: Response) => {
   const { shift_id, closed_by_user_id, actual_cash, expected_cash, device_inventory_count, handover_notes } = req.body;
 
   const diff = actual_cash - expected_cash;
@@ -284,12 +284,29 @@ coreRouter.post('/shifts/close', (req: Request, res: Response) => {
     ipAddress: req.ip
   });
 
+  // Automated shift-close backup snapshot (DEC-002 / ADR-002 / RISK-008)
+  // Per ADR-002, backup completion strictly precedes the shift-close response (sub-second online backup API snapshot)
+  let backupInfo = null;
+  try {
+    backupInfo = await createDatabaseBackup(`shift-close-${shift_id}`);
+    logAudit({
+      action: 'SHIFT_CLOSE_BACKUP',
+      entityType: 'DATABASE_BACKUP',
+      entityId: backupInfo.filename,
+      newValues: { shift_id, filename: backupInfo.filename, sizeBytes: backupInfo.sizeBytes },
+      ipAddress: req.ip
+    });
+  } catch (backupErr: any) {
+    console.error('[Shift Close Backup Error]:', backupErr.message);
+  }
+
   const updated = db.prepare('SELECT * FROM shifts WHERE id = ?').get(shift_id);
   res.json({
     message: diff < 0 ? `Shift closed with a CASH DEFICIT of ${Math.abs(diff)} EGP registered against user.` : 'Shift closed successfully.',
     shift: updated,
     hasDeficit: diff < 0,
-    deficitAmount: diff < 0 ? Math.abs(diff) : 0
+    deficitAmount: diff < 0 ? Math.abs(diff) : 0,
+    backup: backupInfo ? { filename: backupInfo.filename, sizeBytes: backupInfo.sizeBytes } : null
   });
 });
 

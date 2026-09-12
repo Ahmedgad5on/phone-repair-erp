@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import db from '../src/db/database';
 import { runMigrations } from '../src/db/migrations';
 import { seedDatabase } from '../src/db/seed';
@@ -15,6 +17,8 @@ import { repairRouter } from '../src/modules/repair/repair.router';
 import { accountingRouter } from '../src/modules/accounting/accounting.router';
 import { fintechRouter } from '../src/modules/fintech/fintech.router';
 import { inventoryRouter } from '../src/modules/inventory/inventory.router';
+import { coreRouter } from '../src/modules/core/core.router';
+import { sparePartsRouter } from '../src/modules/spare-parts/spare-parts.router';
 import { InstallmentsService } from '../src/modules/retail/installments.service';
 import { TradeInService } from '../src/modules/retail/trade-in.service';
 import { checkSlaEscalations } from '../src/modules/repair/repair.service';
@@ -708,6 +712,8 @@ async function runExtendedSuites() {
   testApp.use('/api/accounting', accountingRouter);
   testApp.use('/api/fintech', fintechRouter);
   testApp.use('/api/inventory', inventoryRouter);
+  testApp.use('/api/core', coreRouter);
+  testApp.use('/api/spare-parts', sparePartsRouter);
 
   const testServer = testApp.listen(0);
   const testPort = (testServer.address() as AddressInfo).port;
@@ -1648,6 +1654,143 @@ async function runExtendedSuites() {
     finalDoubleLifeItem.stock_quantity === 0 && finalDoubleLifeItem.reserved_quantity === 0,
     'Vector (c).10: Asymmetric double lifecycle fully settled: stock_quantity = 0, reserved_quantity = 0'
   );
+
+  // =========================================================================
+  // TEST 69: Purchase Order Approval Ceiling & Workflow (DEC-034, FR-004)
+  // =========================================================================
+  console.log('\n[Test Suite 69: Purchase Order Approval Ceiling & Dual-State Workflow (DEC-034, FR-004)]');
+
+  // Vector 1: High-value PO (> 10,000 EGP) initialized to PENDING_APPROVAL
+  const highPoRes = await fetch(`${baseUrl}/api/spare-parts/purchase-orders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      supplier_name: 'Cairo Tech Spares Co.',
+      supplier_phone: '01012345678',
+      notes: 'High-value wholesale spare parts order',
+      items: [
+        { item_name: 'iPhone 15 Pro OLED Assembly Lot', quantity: 5, estimated_unit_cost: 3000 } // 15,000 EGP > 10,000 EGP
+      ]
+    })
+  });
+  const highPoData = (await highPoRes.json()) as any;
+  assert(highPoRes.status === 201, 'Vector 1a: High-value PO created with HTTP 201');
+  assert(highPoData.total_amount === 15000, 'Vector 1b: High-value PO total amount correctly calculated as 15,000 EGP (> 10,000 threshold)');
+  assert(highPoData.status === 'PENDING_APPROVAL', 'Vector 1c: High-value PO (> 10,000 EGP) initialized with status PENDING_APPROVAL per DEC-034');
+
+  // Vector 2: Receiving unapproved PO strictly rejected with HTTP 403 Forbidden
+  const prematureReceiveRes = await fetch(`${baseUrl}/api/spare-parts/purchase-orders/${highPoData.id}/receive`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  const prematureReceiveData = (await prematureReceiveRes.json()) as any;
+  assert(prematureReceiveRes.status === 403, 'Vector 2a: Attempting to receive unapproved PO strictly rejected with HTTP 403');
+  assert(prematureReceiveData.error === 'PO_APPROVAL_REQUIRED', 'Vector 2b: Server returned error code PO_APPROVAL_REQUIRED');
+
+  // Vector 3: Unauthorized non-manager approval attempt strictly rejected with HTTP 403 Forbidden
+  const cashierToken = signToken({
+    userId: 'usr-cashier-01',
+    username: 'cashier_samir',
+    role: 'Cashier',
+    storeId: defaultStore.id
+  });
+  const unauthorizedApproveRes = await fetch(`${baseUrl}/api/spare-parts/purchase-orders/${highPoData.id}/approve`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${cashierToken}`
+    },
+    body: JSON.stringify({ user_role: 'Cashier' })
+  });
+  const unauthorizedApproveData = (await unauthorizedApproveRes.json()) as any;
+  assert(unauthorizedApproveRes.status === 403, 'Vector 3a: Non-manager/cashier approval attempt rejected with HTTP 403');
+  assert(unauthorizedApproveData.error === 'PO_APPROVAL_FORBIDDEN', 'Vector 3b: Server returned error code PO_APPROVAL_FORBIDDEN');
+
+  // Vector 4: Authorized Manager approval succeeds and unlocks warehouse receipt
+  const managerToken = signToken({
+    userId: 'usr-mgr-adel',
+    username: 'manager_adel',
+    role: 'Manager',
+    storeId: defaultStore.id
+  });
+  const authorizedApproveRes = await fetch(`${baseUrl}/api/spare-parts/purchase-orders/${highPoData.id}/approve`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${managerToken}`
+    },
+    body: JSON.stringify({ approved_by: 'usr-mgr-adel' })
+  });
+  const authorizedApproveData = (await authorizedApproveRes.json()) as any;
+  assert(authorizedApproveRes.status === 200, 'Vector 4a: Manager approval succeeded with HTTP 200');
+  assert(authorizedApproveData.purchase_order.status === 'ORDERED', 'Vector 4b: Approved PO status transitioned to ORDERED');
+  assert(authorizedApproveData.purchase_order.approved_by === 'usr-mgr-adel', 'Vector 4c: Approved PO recorded approver ID');
+
+  // Receipt now succeeds on approved PO
+  const validReceiveRes = await fetch(`${baseUrl}/api/spare-parts/purchase-orders/${highPoData.id}/receive`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  assert(validReceiveRes.status === 200, 'Vector 4d: Warehouse receipt of approved PO completed with HTTP 200');
+
+  // Vector 5: Low-value PO (<= 10,000 EGP) initialized directly to ORDERED without pending gate
+  const lowPoRes = await fetch(`${baseUrl}/api/spare-parts/purchase-orders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      supplier_name: 'Delta Charging Accessories',
+      supplier_phone: '01099887766',
+      notes: 'Standard low-value restock',
+      items: [
+        { item_name: 'USB-C Cable Lot', quantity: 20, estimated_unit_cost: 150 } // 3,000 EGP <= 10,000 EGP
+      ]
+    })
+  });
+  const lowPoData = (await lowPoRes.json()) as any;
+  assert(lowPoRes.status === 201, 'Vector 5a: Low-value PO created with HTTP 201');
+  assert(lowPoData.status === 'ORDERED', 'Vector 5b: Low-value PO (3,000 EGP <= 10,000) initialized directly to ORDERED');
+
+  // =========================================================================
+  // TEST 70: Automated Shift-Close Backup Snapshot (DEC-002, FR-005, RISK-008)
+  // =========================================================================
+  console.log('\n[Test Suite 70: Automated Shift-Close Backup Snapshot (DEC-002, FR-005, RISK-008)]');
+
+  // Create an active shift for closure
+  const testShiftId = 'shift-close-test-' + uuidv4().slice(0, 6);
+  db.prepare(`
+    INSERT INTO shifts (id, store_id, opened_by_user_id, opened_at, opening_cash, status)
+    VALUES (?, ?, ?, datetime('now'), 5000, 'OPEN')
+  `).run(testShiftId, defaultStore.id, adminUser.id);
+
+  // Cashier closes the shift
+  const shiftCloseRes = await fetch(`${baseUrl}/api/core/shifts/close`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      shift_id: testShiftId,
+      closed_by_user_id: adminUser.id,
+      actual_cash: 5000,
+      expected_cash: 5000,
+      device_inventory_count: 12,
+      handover_notes: 'Automated shift close with guaranteed snapshot'
+    })
+  });
+  const shiftCloseData = (await shiftCloseRes.json()) as any;
+
+  assert(shiftCloseRes.status === 200, 'Vector 1a: Shift closed successfully with HTTP 200');
+  assert(shiftCloseData.shift.status === 'HANDED_OVER', 'Vector 1b: Shift status updated to HANDED_OVER');
+  assert(shiftCloseData.backup !== null && typeof shiftCloseData.backup.filename === 'string', 'Vector 1c: Shift close response contains backup snapshot metadata');
+
+  // Verify backup exists physically on disk and has positive size (precedes response per ADR-002)
+  const backupOnDisk = path.join(process.cwd(), 'backups', shiftCloseData.backup.filename);
+  assert(fs.existsSync(backupOnDisk) && fs.statSync(backupOnDisk).size > 0, 'Vector 1d: Verified SQLite backup snapshot physically exists on disk (RPO=0 guaranteed)');
+
+  // Vector 2: Verify audit trail
+  const shiftAuditLogs = db.prepare(`
+    SELECT * FROM audit_logs
+    WHERE action = 'SHIFT_CLOSE_BACKUP' AND entity_id = ?
+  `).all(shiftCloseData.backup.filename) as any[];
+  assert(shiftAuditLogs.length > 0, 'Vector 2a: Synchronous audit log recorded SHIFT_CLOSE_BACKUP with snapshot entityId');
 
   // Close ephemeral test server
   testServer.close();

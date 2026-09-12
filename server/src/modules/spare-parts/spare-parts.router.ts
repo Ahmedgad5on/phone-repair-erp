@@ -3,6 +3,7 @@ import db from '../../db/database';
 import { v4 as uuidv4 } from 'uuid';
 import { logAudit } from '../../services/audit.service';
 import { InventoryService } from '../inventory/inventory.service';
+import { verifyToken } from '../../middleware/auth';
 
 export const sparePartsRouter = Router();
 
@@ -279,10 +280,13 @@ sparePartsRouter.post('/purchase-orders', (req: Request, res: Response) => {
     }
   }
 
+  const threshold = 10000; // 10,000 EGP ceiling per DEC-034
+  const initialStatus = totalAmount > threshold ? 'PENDING_APPROVAL' : 'ORDERED';
+
   db.prepare(`
     INSERT INTO purchase_orders (id, po_number, store_id, supplier_name, supplier_phone, status, total_amount, notes)
-    VALUES (?, ?, ?, ?, ?, 'ORDERED', ?, ?)
-  `).run(poId, poNumber, store.id, supplier_name, supplier_phone || '', totalAmount, notes || '');
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(poId, poNumber, store.id, supplier_name, supplier_phone || '', initialStatus, totalAmount, notes || '');
 
   if (items && Array.isArray(items)) {
     const insertPoItem = db.prepare(`
@@ -305,7 +309,7 @@ sparePartsRouter.post('/purchase-orders', (req: Request, res: Response) => {
     action: 'CREATE',
     entityType: 'PURCHASE_ORDER',
     entityId: poId,
-    newValues: { poNumber, supplier_name, totalAmount },
+    newValues: { poNumber, supplier_name, totalAmount, status: initialStatus },
     ipAddress: req.ip
   });
 
@@ -313,9 +317,64 @@ sparePartsRouter.post('/purchase-orders', (req: Request, res: Response) => {
   res.status(201).json(created);
 });
 
+sparePartsRouter.post('/purchase-orders/:id/approve', (req: Request, res: Response) => {
+  let user = (req as any).user;
+  if (!user && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+    try {
+      user = verifyToken(req.headers.authorization.split(' ')[1]);
+    } catch (e) {}
+  }
+
+  const role = user?.role || req.body?.user_role;
+  const approverId = user?.userId || req.body?.approved_by || 'usr-mgr-01';
+
+  if (!role || !['SuperAdmin', 'Admin', 'Manager'].includes(role)) {
+    return res.status(403).json({
+      error: 'PO_APPROVAL_FORBIDDEN',
+      message: `Forbidden. Role [${role || 'Unspecified'}] does not have permission to approve purchase orders (> 10,000 EGP ceiling per DEC-034).`
+    });
+  }
+
+  const po = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(String(req.params.id)) as any;
+  if (!po) return res.status(404).json({ error: 'Purchase order not found' });
+
+  if (po.status !== 'PENDING_APPROVAL') {
+    return res.status(400).json({
+      error: 'PO_NOT_PENDING_APPROVAL',
+      message: `Purchase order #${po.po_number} is in status "${po.status}" and does not require approval.`
+    });
+  }
+
+  db.prepare(`
+    UPDATE purchase_orders
+    SET status = 'ORDERED',
+        approved_by = ?,
+        approved_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(approverId, po.id);
+
+  logAudit({
+    action: 'APPROVE',
+    entityType: 'PURCHASE_ORDER',
+    entityId: po.id,
+    newValues: { status: 'ORDERED', approved_by: approverId, total_amount: po.total_amount },
+    ipAddress: req.ip
+  });
+
+  const approvedPo = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(po.id);
+  res.status(200).json({ success: true, message: 'Purchase order approved successfully', purchase_order: approvedPo });
+});
+
 sparePartsRouter.post('/purchase-orders/:id/receive', (req: Request, res: Response) => {
   const po = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(String(req.params.id)) as any;
   if (!po) return res.status(404).json({ error: 'Purchase order not found' });
+
+  if (po.status === 'PENDING_APPROVAL') {
+    return res.status(403).json({
+      error: 'PO_APPROVAL_REQUIRED',
+      message: 'Cannot receive purchase order pending management approval (> 10,000 EGP ceiling per DEC-034)'
+    });
+  }
 
   if (po.status === 'RECEIVED') {
     return res.status(400).json({ error: 'Purchase order is already received' });

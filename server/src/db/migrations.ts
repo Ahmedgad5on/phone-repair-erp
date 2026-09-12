@@ -290,7 +290,9 @@ export function runMigrations() {
       total_amount REAL DEFAULT 0.0,
       notes TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      received_at TEXT
+      received_at TEXT,
+      approved_by TEXT,
+      approved_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS purchase_order_items (
