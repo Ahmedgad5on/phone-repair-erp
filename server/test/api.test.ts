@@ -19,6 +19,7 @@ import { fintechRouter } from '../src/modules/fintech/fintech.router';
 import { inventoryRouter } from '../src/modules/inventory/inventory.router';
 import { coreRouter } from '../src/modules/core/core.router';
 import { sparePartsRouter } from '../src/modules/spare-parts/spare-parts.router';
+import { procurementRouter } from '../src/modules/procurement/procurement.router';
 import { InstallmentsService } from '../src/modules/retail/installments.service';
 import { TradeInService } from '../src/modules/retail/trade-in.service';
 import { checkSlaEscalations } from '../src/modules/repair/repair.service';
@@ -714,6 +715,7 @@ async function runExtendedSuites() {
   testApp.use('/api/inventory', inventoryRouter);
   testApp.use('/api/core', coreRouter);
   testApp.use('/api/spare-parts', sparePartsRouter);
+  testApp.use('/api/procurement', procurementRouter);
 
   const testServer = testApp.listen(0);
   const testPort = (testServer.address() as AddressInfo).port;
@@ -1660,6 +1662,17 @@ async function runExtendedSuites() {
   // =========================================================================
   console.log('\n[Test Suite 69: Purchase Order Approval Ceiling & Dual-State Workflow (DEC-034, FR-004)]');
 
+  // Vector 0 (Adversarial): Negative cost / zero quantity injection strictly rejected
+  const negativeCostRes = await fetch(`${baseUrl}/api/spare-parts/purchase-orders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      supplier_name: 'Adversarial Wholesale',
+      items: [{ item_name: 'Exploit Part', quantity: 1, estimated_unit_cost: -500 }]
+    })
+  });
+  assert(negativeCostRes.status === 400, 'Vector 0: Negative cost item injection rejected with HTTP 400');
+
   // Vector 1: High-value PO (> 10,000 EGP) initialized to PENDING_APPROVAL
   const highPoRes = await fetch(`${baseUrl}/api/spare-parts/purchase-orders`, {
     method: 'POST',
@@ -1678,7 +1691,7 @@ async function runExtendedSuites() {
   assert(highPoData.total_amount === 15000, 'Vector 1b: High-value PO total amount correctly calculated as 15,000 EGP (> 10,000 threshold)');
   assert(highPoData.status === 'PENDING_APPROVAL', 'Vector 1c: High-value PO (> 10,000 EGP) initialized with status PENDING_APPROVAL per DEC-034');
 
-  // Vector 2: Receiving unapproved PO strictly rejected with HTTP 403 Forbidden
+  // Vector 2a/2b: Receiving unapproved PO on spare-parts route strictly rejected with HTTP 403 Forbidden
   const prematureReceiveRes = await fetch(`${baseUrl}/api/spare-parts/purchase-orders/${highPoData.id}/receive`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' }
@@ -1687,7 +1700,25 @@ async function runExtendedSuites() {
   assert(prematureReceiveRes.status === 403, 'Vector 2a: Attempting to receive unapproved PO strictly rejected with HTTP 403');
   assert(prematureReceiveData.error === 'PO_APPROVAL_REQUIRED', 'Vector 2b: Server returned error code PO_APPROVAL_REQUIRED');
 
-  // Vector 3: Unauthorized non-manager approval attempt strictly rejected with HTTP 403 Forbidden
+  // Vector 2c/2d (Adversarial): Attempting to bypass approval via parallel procurement GRN route
+  const grnBypassRes = await fetch(`${baseUrl}/api/procurement/grn`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ po_id: highPoData.id })
+  });
+  const grnBypassData = (await grnBypassRes.json()) as any;
+  assert(grnBypassRes.status === 403, 'Vector 2c: Attempting to receive unapproved PO via procurement GRN route strictly rejected with HTTP 403');
+  assert(grnBypassData.error === 'PO_APPROVAL_REQUIRED', 'Vector 2d: Procurement GRN returned error code PO_APPROVAL_REQUIRED per DEC-034');
+
+  // Vector 3a (Adversarial): Unauthenticated approval attempt with spoofed body role (no token)
+  const unauthApproveRes = await fetch(`${baseUrl}/api/spare-parts/purchase-orders/${highPoData.id}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_role: 'Manager' })
+  });
+  assert(unauthApproveRes.status === 403, 'Vector 3a: Unauthenticated approval attempt without token strictly rejected with HTTP 403');
+
+  // Vector 3b (Adversarial): Cashier token with spoofed body role strictly rejected with HTTP 403 Forbidden
   const cashierToken = signToken({
     userId: 'usr-cashier-01',
     username: 'cashier_samir',
@@ -1700,11 +1731,11 @@ async function runExtendedSuites() {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${cashierToken}`
     },
-    body: JSON.stringify({ user_role: 'Cashier' })
+    body: JSON.stringify({ user_role: 'Manager' })
   });
   const unauthorizedApproveData = (await unauthorizedApproveRes.json()) as any;
-  assert(unauthorizedApproveRes.status === 403, 'Vector 3a: Non-manager/cashier approval attempt rejected with HTTP 403');
-  assert(unauthorizedApproveData.error === 'PO_APPROVAL_FORBIDDEN', 'Vector 3b: Server returned error code PO_APPROVAL_FORBIDDEN');
+  assert(unauthorizedApproveRes.status === 403, 'Vector 3b: Cashier role-spoofing attempt in body strictly rejected with HTTP 403');
+  assert(unauthorizedApproveData.error === 'PO_APPROVAL_FORBIDDEN', 'Vector 3c: Server returned error code PO_APPROVAL_FORBIDDEN');
 
   // Vector 4: Authorized Manager approval succeeds and unlocks warehouse receipt
   const managerToken = signToken({
@@ -1718,20 +1749,26 @@ async function runExtendedSuites() {
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${managerToken}`
-    },
-    body: JSON.stringify({ approved_by: 'usr-mgr-adel' })
+    }
   });
   const authorizedApproveData = (await authorizedApproveRes.json()) as any;
   assert(authorizedApproveRes.status === 200, 'Vector 4a: Manager approval succeeded with HTTP 200');
   assert(authorizedApproveData.purchase_order.status === 'ORDERED', 'Vector 4b: Approved PO status transitioned to ORDERED');
   assert(authorizedApproveData.purchase_order.approved_by === 'usr-mgr-adel', 'Vector 4c: Approved PO recorded approver ID');
 
+  // Vector 4d (Adversarial): Assert approver user ID is recorded in audit_logs (never system)
+  const poApprovalAudit = db.prepare(`
+    SELECT * FROM audit_logs
+    WHERE action = 'APPROVE' AND entity_id = ?
+  `).all(highPoData.id) as any[];
+  assert(poApprovalAudit.length > 0 && poApprovalAudit[0].user_id === 'usr-mgr-adel', 'Vector 4d: Synchronous audit log recorded approver user ID usr-mgr-adel (never system)');
+
   // Receipt now succeeds on approved PO
   const validReceiveRes = await fetch(`${baseUrl}/api/spare-parts/purchase-orders/${highPoData.id}/receive`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' }
   });
-  assert(validReceiveRes.status === 200, 'Vector 4d: Warehouse receipt of approved PO completed with HTTP 200');
+  assert(validReceiveRes.status === 200, 'Vector 4e: Warehouse receipt of approved PO completed with HTTP 200');
 
   // Vector 5: Low-value PO (<= 10,000 EGP) initialized directly to ORDERED without pending gate
   const lowPoRes = await fetch(`${baseUrl}/api/spare-parts/purchase-orders`, {
@@ -1755,6 +1792,14 @@ async function runExtendedSuites() {
   // =========================================================================
   console.log('\n[Test Suite 70: Automated Shift-Close Backup Snapshot (DEC-002, FR-005, RISK-008)]');
 
+  // Vector 1a (Adversarial): Attempting to close non-existent shift strictly rejected with HTTP 404
+  const invalidShiftCloseRes = await fetch(`${baseUrl}/api/core/shifts/close`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ shift_id: 'non-existent-shift-id' })
+  });
+  assert(invalidShiftCloseRes.status === 404, 'Vector 1a: Attempting to close non-existent shift rejected with HTTP 404');
+
   // Create an active shift for closure
   const testShiftId = 'shift-close-test-' + uuidv4().slice(0, 6);
   db.prepare(`
@@ -1777,20 +1822,21 @@ async function runExtendedSuites() {
   });
   const shiftCloseData = (await shiftCloseRes.json()) as any;
 
-  assert(shiftCloseRes.status === 200, 'Vector 1a: Shift closed successfully with HTTP 200');
-  assert(shiftCloseData.shift.status === 'HANDED_OVER', 'Vector 1b: Shift status updated to HANDED_OVER');
-  assert(shiftCloseData.backup !== null && typeof shiftCloseData.backup.filename === 'string', 'Vector 1c: Shift close response contains backup snapshot metadata');
+  assert(shiftCloseRes.status === 200, 'Vector 1b: Shift closed successfully with HTTP 200');
+  assert(shiftCloseData.shift.status === 'HANDED_OVER', 'Vector 1c: Shift status updated to HANDED_OVER');
+  assert(shiftCloseData.backup !== null && typeof shiftCloseData.backup.filename === 'string', 'Vector 1d: Shift close response contains backup snapshot metadata');
 
   // Verify backup exists physically on disk and has positive size (precedes response per ADR-002)
   const backupOnDisk = path.join(process.cwd(), 'backups', shiftCloseData.backup.filename);
-  assert(fs.existsSync(backupOnDisk) && fs.statSync(backupOnDisk).size > 0, 'Vector 1d: Verified SQLite backup snapshot physically exists on disk (RPO=0 guaranteed)');
+  assert(fs.existsSync(backupOnDisk) && fs.statSync(backupOnDisk).size > 0, 'Vector 1e: Verified SQLite backup snapshot physically exists on disk (RPO=0 guaranteed)');
 
-  // Vector 2: Verify audit trail
+  // Vector 2: Verify audit trail contains the user ID
   const shiftAuditLogs = db.prepare(`
     SELECT * FROM audit_logs
     WHERE action = 'SHIFT_CLOSE_BACKUP' AND entity_id = ?
   `).all(shiftCloseData.backup.filename) as any[];
   assert(shiftAuditLogs.length > 0, 'Vector 2a: Synchronous audit log recorded SHIFT_CLOSE_BACKUP with snapshot entityId');
+  assert(shiftAuditLogs[0].user_id === adminUser.id, 'Vector 2b: Audit log recorded cashier user ID (never system)');
 
   // Close ephemeral test server
   testServer.close();

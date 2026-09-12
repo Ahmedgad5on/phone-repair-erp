@@ -251,7 +251,15 @@ coreRouter.post('/shifts/open', (req: Request, res: Response) => {
 coreRouter.post('/shifts/close', async (req: Request, res: Response) => {
   const { shift_id, closed_by_user_id, actual_cash, expected_cash, device_inventory_count, handover_notes } = req.body;
 
-  const diff = actual_cash - expected_cash;
+  const existingShift = db.prepare('SELECT * FROM shifts WHERE id = ?').get(shift_id) as any;
+  if (!existingShift) {
+    return res.status(404).json({ error: 'SHIFT_NOT_FOUND', message: 'Shift not found' });
+  }
+
+  // Integer-piastre precision per Constitution Principle I & DEC-011
+  const actualCashNum = Number(actual_cash) || 0;
+  const expectedCashNum = Number(expected_cash) || 0;
+  const diff = Math.round((actualCashNum - expectedCashNum) * 100) / 100;
   const now = new Date().toISOString();
 
   db.prepare(`
@@ -268,8 +276,8 @@ coreRouter.post('/shifts/close', async (req: Request, res: Response) => {
   `).run(
     closed_by_user_id,
     now,
-    expected_cash,
-    actual_cash,
+    expectedCashNum,
+    actualCashNum,
     diff,
     device_inventory_count || 0,
     handover_notes || '',
@@ -277,10 +285,11 @@ coreRouter.post('/shifts/close', async (req: Request, res: Response) => {
   );
 
   logAudit({
+    userId: closed_by_user_id,
     action: 'UPDATE',
     entityType: 'SHIFT',
     entityId: shift_id,
-    newValues: { actual_cash, expected_cash, diff },
+    newValues: { actual_cash: actualCashNum, expected_cash: expectedCashNum, diff },
     ipAddress: req.ip
   });
 
@@ -290,6 +299,7 @@ coreRouter.post('/shifts/close', async (req: Request, res: Response) => {
   try {
     backupInfo = await createDatabaseBackup(`shift-close-${shift_id}`);
     logAudit({
+      userId: closed_by_user_id,
       action: 'SHIFT_CLOSE_BACKUP',
       entityType: 'DATABASE_BACKUP',
       entityId: backupInfo.filename,
@@ -298,6 +308,18 @@ coreRouter.post('/shifts/close', async (req: Request, res: Response) => {
     });
   } catch (backupErr: any) {
     console.error('[Shift Close Backup Error]:', backupErr.message);
+    logAudit({
+      userId: closed_by_user_id,
+      action: 'SHIFT_CLOSE_BACKUP_FAILED',
+      entityType: 'DATABASE_BACKUP',
+      entityId: shift_id,
+      newValues: { error: backupErr.message },
+      ipAddress: req.ip
+    });
+    return res.status(500).json({
+      error: 'BACKUP_FAILED',
+      message: `Shift closed in database but automated snapshot creation failed (${backupErr.message}). Contact administrator immediately per DEC-015.`
+    });
   }
 
   const updated = db.prepare('SELECT * FROM shifts WHERE id = ?').get(shift_id);
@@ -306,7 +328,7 @@ coreRouter.post('/shifts/close', async (req: Request, res: Response) => {
     shift: updated,
     hasDeficit: diff < 0,
     deficitAmount: diff < 0 ? Math.abs(diff) : 0,
-    backup: backupInfo ? { filename: backupInfo.filename, sizeBytes: backupInfo.sizeBytes } : null
+    backup: { filename: backupInfo.filename, sizeBytes: backupInfo.sizeBytes }
   });
 });
 

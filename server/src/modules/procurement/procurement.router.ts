@@ -72,6 +72,17 @@ procurementRouter.get('/grn', (_req: Request, res: Response) => {
 
 procurementRouter.post('/grn', (req: Request, res: Response) => {
   const { po_id, inspection_notes, status, received_by_user_id } = req.body;
+
+  if (po_id) {
+    const po = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(po_id) as any;
+    if (po && po.status === 'PENDING_APPROVAL') {
+      return res.status(403).json({
+        error: 'PO_APPROVAL_REQUIRED',
+        message: 'Cannot receive purchase order pending management approval (> 10,000 EGP ceiling per DEC-034)'
+      });
+    }
+  }
+
   const maxGrn = db.prepare('SELECT COALESCE(MAX(grn_number), 200) as maxNum FROM goods_received_notes').get() as { maxNum: number };
   const grnNumber = maxGrn.maxNum + 1;
   const id = `grn-${uuidv4().substring(0, 8)}`;
@@ -297,11 +308,13 @@ procurementRouter.post('/predictive-po', (req: Request, res: Response) => {
   const poNumber = maxPo.maxNum + 1;
   const poId = `po-auto-${uuidv4().substring(0, 8)}`;
   const totalCost = suggestions.reduce((sum, s) => sum + s.estimated_po_cost, 0);
+  const threshold = 10000; // 10,000 EGP ceiling per DEC-034
+  const initialStatus = totalCost > threshold ? 'PENDING_APPROVAL' : 'ORDERED';
 
   db.prepare(`
     INSERT INTO purchase_orders (id, po_number, supplier_name, status, total_amount, notes)
-    VALUES (?, ?, ?, 'ORDERED', ?, 'Auto-generated predictive reorder based on safety stock threshold')
-  `).run(poId, poNumber, supplier_name || 'Al-Ahram Spare Parts Wholesale', totalCost);
+    VALUES (?, ?, ?, ?, ?, 'Auto-generated predictive reorder based on safety stock threshold')
+  `).run(poId, poNumber, supplier_name || 'Al-Ahram Spare Parts Wholesale', initialStatus, totalCost);
 
   const itemStmt = db.prepare(`
     INSERT INTO purchase_order_items (id, po_id, item_id, item_name, quantity, estimated_unit_cost)
