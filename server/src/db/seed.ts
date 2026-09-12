@@ -15,6 +15,22 @@ export function seedDatabase() {
     // ignore
   }
 
+  // Ensure master device exists in trusted_devices (DEC-043)
+  try {
+    const masterDevice = db.prepare('SELECT id FROM trusted_devices WHERE id = ?').get('dev-master-pos-01');
+    if (!masterDevice) {
+      const crypto = require('crypto');
+      const masterRandomToken = crypto.randomBytes(32).toString('hex');
+      db.prepare(`
+        INSERT INTO trusted_devices (id, device_token, device_name, mac_or_fingerprint, ip_subnet, is_whitelisted)
+        VALUES (?, ?, ?, ?, ?, 1)
+      `).run('dev-master-pos-01', masterRandomToken, 'master-pos-station-token', 'HOST-PRIMARY-TERMINAL', '127.0.0.1');
+      console.log('[Security] Seeded master POS device (Label: master-pos-station-token, Token: cryptographically generated)');
+    }
+  } catch (err) {
+    // ignore
+  }
+
   const storeCount = db.prepare('SELECT COUNT(*) as count FROM stores').get() as { count: number };
   if (storeCount.count > 0) {
     console.log('[Database] Data already seeded.');

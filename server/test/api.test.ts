@@ -8,6 +8,8 @@ import { AddressInfo } from 'net';
 import { v4 as uuidv4 } from 'uuid';
 import { ERP_CONSTANTS } from '../src/constants/erp.constants';
 import { authRouter } from '../src/modules/auth/auth.router';
+import { securityRouter } from '../src/modules/security/security.router';
+import { subnetAndDeviceGuard } from '../src/middleware/subnet-guard';
 import { retailRouter } from '../src/modules/retail/retail.router';
 import { repairRouter } from '../src/modules/repair/repair.router';
 import { accountingRouter } from '../src/modules/accounting/accounting.router';
@@ -689,14 +691,18 @@ async function runExtendedSuites() {
   const testApp = express();
   testApp.use(express.json());
 
+  testApp.use(subnetAndDeviceGuard);
+
   const testAuthLimiter = rateLimit({
     windowMs: ERP_CONSTANTS.RATE_LIMIT.AUTH_WINDOW_MS,
     max: ERP_CONSTANTS.RATE_LIMIT.AUTH_MAX_ATTEMPTS,
     message: { success: false, error: 'Too many authentication attempts. Please try again in 1 minute.', code: 'RATE_LIMIT_EXCEEDED' }
   });
 
+  testApp.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
   testApp.use('/api/auth/login', testAuthLimiter);
   testApp.use('/api/auth', authRouter);
+  testApp.use('/api/security', securityRouter);
   testApp.use('/api/retail', retailRouter);
   testApp.use('/api/repair', repairRouter);
   testApp.use('/api/accounting', accountingRouter);
@@ -1277,6 +1283,139 @@ async function runExtendedSuites() {
     deleteCustBlocked = err.message.includes('FOREIGN KEY constraint failed');
   }
   assert(deleteCustBlocked, 'Behavioral verification: Deleting customer with active repair tickets strictly blocked by SQLite ON DELETE RESTRICT');
+
+  // TEST 67: Subnet Firewall Default-DENY & Workstation Hardware Token Gate (DEC-020, DEC-043 / ADR-020 / RISK-011)
+  console.log('\n[Test Suite 67: Subnet Firewall Default-DENY & Workstation Hardware Token Gate (DEC-020, DEC-043)]');
+
+  // Vector 1: External / WAN IP blocked by Subnet Firewall with HTTP 403 (code: LAN_ACCESS_ONLY)
+  const wanIpRes = await fetch(`${baseUrl}/api/retail/items`, {
+    headers: { 'x-test-client-ip': '203.0.113.195' }
+  });
+  const wanIpData = (await wanIpRes.json()) as any;
+  assert(
+    wanIpRes.status === 403 && wanIpData.code === 'LAN_ACCESS_ONLY',
+    'Attack Vector 1: Public WAN IP (203.0.113.195) rejected with HTTP 403 and code LAN_ACCESS_ONLY'
+  );
+
+  // Vector 2: Non-ratified private subnet (e.g. 172.16.5.10) blocked by Subnet Firewall
+  const nonWhitelistedSubnetRes = await fetch(`${baseUrl}/api/retail/items`, {
+    headers: { 'x-test-client-ip': '172.16.5.10' }
+  });
+  const nonWhitelistedData = (await nonWhitelistedSubnetRes.json()) as any;
+  assert(
+    nonWhitelistedSubnetRes.status === 403 && nonWhitelistedData.code === 'LAN_ACCESS_ONLY',
+    'Attack Vector 2: Non-ratified subnet (172.16.5.10) rejected with HTTP 403 per DEC-043 perimeter'
+  );
+
+  // Vector 3: Exempt routes (/api/health) bypass subnet guard even from external IP
+  const exemptHealthRes = await fetch(`${baseUrl}/api/health`, {
+    headers: { 'x-test-client-ip': '203.0.113.195' }
+  });
+  assert(exemptHealthRes.status === 200, 'Vector 3: Exempt route (/api/health) successfully accessible from external IP without blocking');
+
+  // Vector 4: LAN station (192.168.1.50) without hardware device token rejected with HTTP 403 (code: DEVICE_TOKEN_REQUIRED)
+  const lanNoTokenRes = await fetch(`${baseUrl}/api/retail/items`, {
+    headers: { 'x-test-client-ip': '192.168.1.50' }
+  });
+  const lanNoTokenData = (await lanNoTokenRes.json()) as any;
+  assert(
+    lanNoTokenRes.status === 403 && lanNoTokenData.code === 'DEVICE_TOKEN_REQUIRED',
+    'Vector 4: LAN workstation (192.168.1.50) missing x-device-token rejected with HTTP 403 and code DEVICE_TOKEN_REQUIRED'
+  );
+
+  // Vector 5: LAN station with forged/unregistered token rejected with HTTP 403 (code: DEVICE_NOT_WHITELISTED)
+  const lanFakeTokenRes = await fetch(`${baseUrl}/api/retail/items`, {
+    headers: {
+      'x-test-client-ip': '192.168.1.50',
+      'x-device-token': 'forged-attacker-token-9999'
+    }
+  });
+  const lanFakeTokenData = (await lanFakeTokenRes.json()) as any;
+  assert(
+    lanFakeTokenRes.status === 403 && lanFakeTokenData.code === 'DEVICE_NOT_WHITELISTED',
+    'Attack Vector 5: LAN workstation with invalid x-device-token rejected with HTTP 403 and code DEVICE_NOT_WHITELISTED'
+  );
+
+  // Vector 6: Workstation Device Onboarding via POST /api/security/devices/register
+  // 6a: Non-privileged user blocked from registering devices (RBAC check)
+  const techToken = signToken({ userId: 'u-tech-1', username: 'technician', role: 'Technician', storeId: 'store-1' });
+  const nonAdminRegRes = await fetch(`${baseUrl}/api/security/devices/register`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${techToken}`
+    },
+    body: JSON.stringify({ device_name: 'Unauthorized Tech Station' })
+  });
+  assert(nonAdminRegRes.status === 403, 'Vector 6a: Non-manager/non-admin user rejected from device registration with HTTP 403');
+
+  // 6b: Missing device_name rejected with HTTP 400
+  const adminToken = signToken({ userId: 'u-admin-1', username: 'admin', role: 'SuperAdmin', storeId: 'store-1' });
+  const missingNameRes = await fetch(`${baseUrl}/api/security/devices/register`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${adminToken}`
+    },
+    body: JSON.stringify({ device_name: '   ' })
+  });
+  assert(missingNameRes.status === 400, 'Vector 6b: Registration without device_name rejected with HTTP 400 Bad Request');
+
+  // 6c: Admin registers new workstation successfully
+  const registerRes = await fetch(`${baseUrl}/api/security/devices/register`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${adminToken}`
+    },
+    body: JSON.stringify({
+      device_name: 'Workstation-POS-Terminal-2',
+      mac_or_fingerprint: '00:1A:2B:3C:4D:5E',
+      ip_subnet: '192.168.1.50'
+    })
+  });
+  const regData = (await registerRes.json()) as any;
+  assert(
+    registerRes.status === 201 &&
+    regData.success === true &&
+    typeof regData.device_token === 'string' &&
+    regData.device_token.length === 64,
+    'Vector 6c: SuperAdmin successfully registered trusted workstation; received 64-char crypto token'
+  );
+
+  const persistedDevice = db.prepare('SELECT * FROM trusted_devices WHERE id = ?').get(regData.device_id) as any;
+  assert(
+    persistedDevice !== undefined &&
+    persistedDevice.is_whitelisted === 1 &&
+    persistedDevice.device_name === 'Workstation-POS-Terminal-2',
+    'Vector 6d: Workstation record persisted in trusted_devices with is_whitelisted = 1'
+  );
+
+  // 6e: Verify audit log recorded registration
+  const regAudit = db.prepare("SELECT * FROM audit_logs WHERE action = 'REGISTER_DEVICE' AND entity_id = ?").get(regData.device_id) as any;
+  assert(regAudit !== undefined && regAudit.user_id === 'u-admin-1', 'Vector 6e: REGISTER_DEVICE action recorded in audit_logs with actor details');
+
+  // Vector 7: LAN station with valid registered device token successfully accesses protected endpoint
+  const authorizedLanRes = await fetch(`${baseUrl}/api/retail/items`, {
+    headers: {
+      'x-test-client-ip': '192.168.1.50',
+      'x-device-token': regData.device_token
+    }
+  });
+  assert(
+    authorizedLanRes.status === 200,
+    'Vector 7: LAN workstation with valid x-device-token successfully authorized (HTTP 200)'
+  );
+
+  // Vector 8: Seeded Master POS Device (Label master-pos-station-token) verification per DEC-043
+  const seededMaster = db.prepare("SELECT * FROM trusted_devices WHERE id = 'dev-master-pos-01'").get() as any;
+  assert(
+    seededMaster !== undefined &&
+    seededMaster.device_name === 'master-pos-station-token' &&
+    seededMaster.device_token !== 'master-pos-station-token' &&
+    seededMaster.device_token.length === 64,
+    'Vector 8: Seeded master POS device uses crypto random 64-char token (DEC-043 condition enforced)'
+  );
 
   // Close ephemeral test server
   testServer.close();

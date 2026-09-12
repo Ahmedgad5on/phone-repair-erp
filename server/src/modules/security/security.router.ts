@@ -1,9 +1,12 @@
 import { Router, Request, Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import db from '../../db/database';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 import { TwoFactorService } from '../../services/two-factor.service';
 import { logAudit } from '../../services/audit.service';
+import { requireAuth, AuthenticatedRequest } from '../../middleware/auth';
+import { ERP_CONSTANTS } from '../../constants/erp.constants';
 
 export const securityRouter = Router();
 
@@ -106,3 +109,56 @@ securityRouter.post('/api-keys', (req: Request, res: Response) => {
     message: 'Save this API key securely. It will not be shown again.'
   });
 });
+
+// 4. Workstation Device Onboarding & Registration (DEC-020, DEC-043)
+const deviceRegisterLimiter = rateLimit({
+  windowMs: ERP_CONSTANTS.RATE_LIMIT.AUTH_WINDOW_MS || 60000,
+  max: ERP_CONSTANTS.RATE_LIMIT.AUTH_MAX_ATTEMPTS || 5,
+  message: {
+    success: false,
+    error: 'Too many device registration attempts. Please try again in 1 minute.',
+    code: 'RATE_LIMIT_EXCEEDED'
+  }
+});
+
+securityRouter.post('/devices/register', deviceRegisterLimiter, requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  // Only SuperAdmin or Manager can onboard a new workstation
+  if (!req.user || !['SuperAdmin', 'Manager'].includes(req.user.role)) {
+    return res.status(403).json({
+      error: 'FORBIDDEN: Only Manager or SuperAdmin can register trusted workstations.',
+      code: 'INSUFFICIENT_ROLE'
+    });
+  }
+
+  const { device_name, mac_or_fingerprint, ip_subnet } = req.body;
+  if (!device_name || typeof device_name !== 'string' || !device_name.trim()) {
+    return res.status(400).json({ error: 'device_name is required' });
+  }
+
+  const id = `dev-${uuidv4().substring(0, 8)}`;
+  const deviceToken = crypto.randomBytes(32).toString('hex');
+
+  db.prepare(`
+    INSERT INTO trusted_devices (id, device_token, device_name, mac_or_fingerprint, ip_subnet, is_whitelisted)
+    VALUES (?, ?, ?, ?, ?, 1)
+  `).run(id, deviceToken, device_name.trim(), mac_or_fingerprint || null, ip_subnet || null);
+
+  logAudit({
+    action: 'REGISTER_DEVICE',
+    entityType: 'TRUSTED_DEVICE',
+    entityId: id,
+    userId: req.user.userId,
+    username: req.user.username,
+    newValues: { device_name: device_name.trim(), mac_or_fingerprint, ip_subnet, is_whitelisted: 1 },
+    ipAddress: req.ip
+  });
+
+  res.status(201).json({
+    success: true,
+    device_id: id,
+    device_name: device_name.trim(),
+    device_token: deviceToken,
+    message: 'Workstation successfully registered. Store this device token securely on the client terminal.'
+  });
+});
+
