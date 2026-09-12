@@ -222,11 +222,11 @@ export class InventoryRepository {
               WHERE item_id = ? AND stock_count_id = ? AND status = 'FROZEN'
               ORDER BY created_at DESC LIMIT 1
             `).get(c.item_id, countBatchId)
-          : null) || db.prepare(`
-          SELECT * FROM stock_count_items
-          WHERE item_id = ? AND status = 'FROZEN'
-          ORDER BY created_at DESC LIMIT 1
-        `).get(c.item_id) as any;
+          : db.prepare(`
+              SELECT * FROM stock_count_items
+              WHERE item_id = ? AND status = 'FROZEN'
+              ORDER BY created_at DESC LIMIT 1
+            `).get(c.item_id)) as any;
 
         // Per DEC-030 & ADR-030:
         // When manager override sales completed during the freeze, the count reconciliation baseline

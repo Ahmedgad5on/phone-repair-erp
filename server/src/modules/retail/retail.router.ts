@@ -187,6 +187,14 @@ retailRouter.post('/sales', (req: Request, res: Response) => {
     }
   }
 
+  if (insufficientItems.length > 0) {
+    return res.status(409).json({
+      error: 'INSUFFICIENT_AVAILABLE_STOCK',
+      message: 'Item has reserved stock allocated to active workshop repairs or insufficient inventory per DEC-036.',
+      items: insufficientItems
+    });
+  }
+
   // Enforce Stocktake Freeze Guard (DEC-023 / DEC-030)
   let stocktakeOverrideResult: any = null;
   const overrideToken = req.body.manager_override_token || req.body.override_token;
@@ -208,14 +216,6 @@ retailRouter.post('/sales', (req: Request, res: Response) => {
         message: stocktakeOverrideResult.error || 'Invalid or expired manager override token'
       });
     }
-  }
-
-  if (insufficientItems.length > 0) {
-    return res.status(409).json({
-      error: 'INSUFFICIENT_AVAILABLE_STOCK',
-      message: 'Item has reserved stock allocated to active workshop repairs or insufficient inventory per DEC-036.',
-      items: insufficientItems
-    });
   }
 
   // Find or create customer
@@ -508,6 +508,34 @@ retailRouter.post('/sales/:id/approve', (req: Request, res: Response) => {
 
   const saleItems = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(sale.id) as any[];
 
+  // Negative stock and repair reservation guard before approving draft (DEC-036)
+  const insufficient: any[] = [];
+  for (const itm of saleItems) {
+    const currentItem = db.prepare('SELECT stock_quantity, reserved_quantity, name FROM items WHERE id = ?').get(itm.item_id) as any;
+    if (currentItem) {
+      const reserved = Number(currentItem.reserved_quantity) || 0;
+      const available = Math.max(0, currentItem.stock_quantity - reserved);
+      if (available < itm.quantity) {
+        insufficient.push({
+          item_id: itm.item_id,
+          name: currentItem.name,
+          requested: itm.quantity,
+          available,
+          stock_quantity: currentItem.stock_quantity,
+          reserved_quantity: reserved
+        });
+      }
+    }
+  }
+
+  if (insufficient.length > 0) {
+    return res.status(409).json({
+      error: 'INSUFFICIENT_AVAILABLE_STOCK',
+      message: 'Item has reserved stock allocated to active workshop repairs or insufficient inventory per DEC-036.',
+      items: insufficient
+    });
+  }
+
   // DEC-023 / DEC-030: Stocktake freeze guard before approving draft
   const frozenDraftItems: any[] = [];
   for (const itm of saleItems) {
@@ -543,66 +571,42 @@ retailRouter.post('/sales/:id/approve', (req: Request, res: Response) => {
     }
   }
 
-  // Negative stock and repair reservation guard before approving draft (DEC-036)
-  const insufficient: any[] = [];
-  for (const itm of saleItems) {
-    const currentItem = db.prepare('SELECT stock_quantity, reserved_quantity, name FROM items WHERE id = ?').get(itm.item_id) as any;
-    if (currentItem) {
-      const reserved = Number(currentItem.reserved_quantity) || 0;
-      const available = Math.max(0, currentItem.stock_quantity - reserved);
-      if (available < itm.quantity) {
-        insufficient.push({
-          item_id: itm.item_id,
-          name: currentItem.name,
-          requested: itm.quantity,
-          available,
-          stock_quantity: currentItem.stock_quantity,
-          reserved_quantity: reserved
-        });
+  const approveTx = db.transaction(() => {
+    for (const itm of saleItems) {
+      db.prepare('UPDATE items SET stock_quantity = stock_quantity - ?, last_sold_date = CURRENT_TIMESTAMP WHERE id = ?').run(itm.quantity, itm.item_id);
+
+      if (draftOverrideResult && frozenDraftItems.some(fi => fi.item_id === itm.item_id)) {
+        db.prepare(`
+          UPDATE stock_count_items
+          SET override_sales_quantity = override_sales_quantity + ?
+          WHERE item_id = ? AND status = 'FROZEN'
+        `).run(itm.quantity, itm.item_id);
+      }
+
+      if (itm.imei) {
+        db.prepare("UPDATE imei_records SET status = 'SOLD', sold_date = CURRENT_TIMESTAMP, sold_sale_id = ? WHERE imei = ?").run(sale.id, itm.imei);
       }
     }
-  }
 
-  if (insufficient.length > 0) {
-    return res.status(409).json({
-      error: 'INSUFFICIENT_AVAILABLE_STOCK',
-      message: 'Item has reserved stock allocated to active workshop repairs or insufficient inventory per DEC-036.',
-      items: insufficient
-    });
-  }
-
-  for (const itm of saleItems) {
-    db.prepare('UPDATE items SET stock_quantity = stock_quantity - ?, last_sold_date = CURRENT_TIMESTAMP WHERE id = ?').run(itm.quantity, itm.item_id);
-
-    if (draftOverrideResult && frozenDraftItems.some(fi => fi.item_id === itm.item_id)) {
-      db.prepare(`
-        UPDATE stock_count_items
-        SET override_sales_quantity = override_sales_quantity + ?
-        WHERE item_id = ? AND status = 'FROZEN'
-      `).run(itm.quantity, itm.item_id);
-    }
-
-    if (itm.imei) {
-      db.prepare("UPDATE imei_records SET status = 'SOLD', sold_date = CURRENT_TIMESTAMP, sold_sale_id = ? WHERE imei = ?").run(sale.id, itm.imei);
-    }
-  }
-
-  db.prepare(`
-    UPDATE sales
-    SET status = 'COMPLETED',
-        cashier_id = ?,
-        payment_method = ?
-    WHERE id = ?
-  `).run(cashier_id || 'usr-cashier', payment_method || 'CASH', sale.id);
-
-  if (sale.customer_id) {
     db.prepare(`
-      UPDATE customers
-      SET total_spent = total_spent + ?,
-          loyalty_points = loyalty_points + ?
+      UPDATE sales
+      SET status = 'COMPLETED',
+          cashier_id = ?,
+          payment_method = ?
       WHERE id = ?
-    `).run(sale.total, sale.loyalty_points_earned, sale.customer_id);
-  }
+    `).run(cashier_id || 'usr-cashier', payment_method || 'CASH', sale.id);
+
+    if (sale.customer_id) {
+      db.prepare(`
+        UPDATE customers
+        SET total_spent = total_spent + ?,
+            loyalty_points = loyalty_points + ?
+        WHERE id = ?
+      `).run(sale.total, sale.loyalty_points_earned, sale.customer_id);
+    }
+  });
+
+  approveTx();
 
   if (draftOverrideResult && frozenDraftItems.length > 0) {
     for (const fi of frozenDraftItems) {
