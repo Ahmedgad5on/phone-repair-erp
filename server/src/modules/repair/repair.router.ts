@@ -228,7 +228,7 @@ repairRouter.post('/tickets', (req: Request, res: Response) => {
 });
 
 // 3. Update Ticket Status & Transitions with State Machine Validation & QA Checklist Enforcement
-repairRouter.patch(['/tickets/:id/status', '/:id/status'], (req: Request, res: Response) => {
+repairRouter.patch(['/tickets/:id/status', '/:id/status'], requireAuth, (req: Request, res: Response) => {
   const { status, tat_minutes, qa_checklist } = req.body;
   if (!status) return res.status(400).json({ error: 'Status is required' });
 
@@ -299,11 +299,7 @@ repairRouter.patch(['/tickets/:id/status', '/:id/status'], (req: Request, res: R
         const maxEntry = db.prepare('SELECT COALESCE(MAX(entry_number), 1000) as maxNum FROM journal_entries').get() as { maxNum: number };
         const entryNumber = maxEntry.maxNum + 1;
         const entryId = `je-${uuidv4().substring(0, 8)}`;
-        let actorId = (req as any).user?.userId;
-        if (!actorId) {
-          const fallbackUser = db.prepare("SELECT id FROM users WHERE role = 'SuperAdmin' LIMIT 1").get() as any;
-          actorId = fallbackUser?.id || 'system';
-        }
+        const actorId = (req as any).user?.userId;
 
         const expenseTx = db.transaction(() => {
           db.prepare(`
@@ -1336,7 +1332,7 @@ repairRouter.post('/tickets/:id/void-warranty', requireAuth, requireRole(['Manag
   let ext = 'jpg';
 
   if (evidence_base64) {
-    const match = evidence_base64.match(/^data:image\/(\w+);base64,(.+)$/);
+    const match = evidence_base64.match(/^data:image\/(jpeg|png);base64,([\s\S]+)$/);
     if (!match) {
       return res.status(400).json({ error: 'Invalid base64 image data', code: 'EVIDENCE_FORMAT_INVALID' });
     }
@@ -1351,7 +1347,7 @@ repairRouter.post('/tickets/:id/void-warranty', requireAuth, requireRole(['Manag
     const resolvedFile = path.resolve(evidence_file);
     const allowedBase = path.resolve(process.cwd(), 'uploads');
     if (!resolvedFile.startsWith(allowedBase)) {
-      return res.status(400).json({ error: 'Evidence file path must be within uploads directory', code: 'EVIDENCE_FORMAT_INVALID' });
+      return res.status(400).json({ error: 'Evidence file path must be within uploads directory', code: 'EVIDENCE_PATH_INVALID' });
     }
     if (!fs.existsSync(resolvedFile)) {
       return res.status(400).json({ error: 'Evidence file not found on disk', code: 'PHOTO_EVIDENCE_REQUIRED' });

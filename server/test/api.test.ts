@@ -989,7 +989,7 @@ async function runExtendedSuites() {
 
   const invalidLeapRes = await fetch(`${baseUrl}/api/repair/tickets/${tktId}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({ status: 'DELIVERED' })
   });
   const invalidLeapData = (await invalidLeapRes.json()) as any;
@@ -1001,23 +1001,23 @@ async function runExtendedSuites() {
 
   await fetch(`${baseUrl}/api/repair/tickets/${tktId}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({ status: 'DIAGNOSED' })
   });
   await fetch(`${baseUrl}/api/repair/tickets/${tktId}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({ status: 'IN_REPAIR' })
   });
   await fetch(`${baseUrl}/api/repair/tickets/${tktId}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({ status: 'QA' })
   });
 
   const readyWithoutQcRes = await fetch(`${baseUrl}/api/repair/tickets/${tktId}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({ status: 'READY' })
   });
   const readyWithoutQcData = (await readyWithoutQcRes.json()) as any;
@@ -1029,7 +1029,7 @@ async function runExtendedSuites() {
 
   const readyWithQcRes = await fetch(`${baseUrl}/api/repair/tickets/${tktId}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({
       status: 'READY',
       qa_checklist: { screen: true, touch: true, battery: true, camera: true }
@@ -1585,7 +1585,7 @@ async function runExtendedSuites() {
   // Move Ticket 1 to IN_REPAIR -> triggers reservation
   const tkt1InRepairRes = await fetch(`${baseUrl}/api/repair/tickets/${tkt1Id}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({ status: 'IN_REPAIR' })
   });
   assert(tkt1InRepairRes.status === 200, 'Vector (c).1: Ticket 1 transitioned to IN_REPAIR');
@@ -1593,7 +1593,7 @@ async function runExtendedSuites() {
   // Move Ticket 2 to IN_REPAIR -> triggers reservation
   const tkt2InRepairRes = await fetch(`${baseUrl}/api/repair/tickets/${tkt2Id}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({ status: 'IN_REPAIR' })
   });
   assert(tkt2InRepairRes.status === 200, 'Vector (c).2: Ticket 2 transitioned to IN_REPAIR');
@@ -1607,14 +1607,14 @@ async function runExtendedSuites() {
   // Branch 1: Deliver Ticket 1 (requires QA checklist for READY -> then DELIVERED)
   const tkt1ReadyRes = await fetch(`${baseUrl}/api/repair/tickets/${tkt1Id}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({ status: 'READY', qa_checklist: { battery_tested: true, charge_cycle: 100 } })
   });
   assert(tkt1ReadyRes.status === 200, 'Vector (c).4: Ticket 1 transitioned to READY with valid QA checklist');
 
   const tkt1DeliverRes = await fetch(`${baseUrl}/api/repair/tickets/${tkt1Id}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({ status: 'DELIVERED' })
   });
   assert(tkt1DeliverRes.status === 200, 'Vector (c).5: Ticket 1 transitioned to DELIVERED');
@@ -1628,7 +1628,7 @@ async function runExtendedSuites() {
   // Branch 2: Cancel Ticket 2
   const tkt2CancelRes = await fetch(`${baseUrl}/api/repair/tickets/${tkt2Id}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({ status: 'CANCELLED' })
   });
   assert(tkt2CancelRes.status === 200, 'Vector (c).7: Ticket 2 transitioned to CANCELLED');
@@ -2146,7 +2146,7 @@ async function runExtendedSuites() {
   assert(screenTicketRes.status === 201, 'Vector 1a: Screen repair ticket created with HTTP 201');
   const screenTicketId = screenTicketData.ticket?.id || screenTicketData.id;
 
-  const { readyRes: screenReadyRes, deliverRes: screenDeliveredRes } = await deliverRepairTicket(screenTicketId, { screen: true, touch: true, power: true });
+  const { readyRes: screenReadyRes, deliverRes: screenDeliveredRes } = await deliverRepairTicket(screenTicketId, { screen: true, touch: true, power: true }, { 'Authorization': `Bearer ${token}` });
   assert(screenReadyRes.status === 200, 'Vector 1b: Screen ticket transitioned to READY');
   assert(screenDeliveredRes.status === 200, 'Vector 1c: Screen ticket delivered');
 
@@ -2184,7 +2184,7 @@ async function runExtendedSuites() {
   assert(battTicketRes.status === 201, 'Vector 2a: Battery repair ticket created with HTTP 201');
   const battTicketId = battTicketData.ticket?.id || battTicketData.id;
 
-  await deliverRepairTicket(battTicketId, { battery: true, charging: true });
+  await deliverRepairTicket(battTicketId, { battery: true, charging: true }, { 'Authorization': `Bearer ${token}` });
   const battTicketDb = db.prepare('SELECT warranty_duration_days, warranty_expiry_date FROM repair_tickets WHERE id = ?').get(battTicketId) as any;
   assert(battTicketDb.warranty_duration_days === 60, 'Vector 2b: Battery repair assigned 60-day warranty duration per DEC-041');
 
@@ -2206,7 +2206,7 @@ async function runExtendedSuites() {
   assert(mbTicketRes.status === 201, 'Vector 3a: Motherboard/Port repair ticket created with HTTP 201');
   const mbTicketId = mbTicketData.ticket?.id || mbTicketData.id;
 
-  await deliverRepairTicket(mbTicketId, { port: true, power: true });
+  await deliverRepairTicket(mbTicketId, { port: true, power: true }, { 'Authorization': `Bearer ${token}` });
   const mbTicketDb = db.prepare('SELECT warranty_duration_days, warranty_expiry_date FROM repair_tickets WHERE id = ?').get(mbTicketId) as any;
   assert(mbTicketDb.warranty_duration_days === 30, 'Vector 3b: Motherboard/Port repair assigned 30-day warranty duration per DEC-041');
 
@@ -2236,7 +2236,7 @@ async function runExtendedSuites() {
   assert(reworkTicketData.ticket?.is_warranty_repair === 1 || reworkTicketData.is_warranty_repair === 1, 'Vector 4b: Rework ticket flagged as is_warranty_repair = 1');
   assert(reworkTicketData.ticket?.parent_ticket_id === screenTicketId || reworkTicketData.parent_ticket_id === screenTicketId, 'Vector 4c: Rework ticket linked to parent ticket id');
 
-  await deliverRepairTicket(reworkTicketId, { screen: true, touch: true });
+  await deliverRepairTicket(reworkTicketId, { screen: true, touch: true }, { 'Authorization': `Bearer ${token}` });
   const reworkTicketDb = db.prepare('SELECT warranty_duration_days, warranty_expiry_date FROM repair_tickets WHERE id = ?').get(reworkTicketId) as any;
   assert(reworkTicketDb.warranty_duration_days === simulatedRemainingDays, `Vector 4d: Rework ticket inherited remaining window (${simulatedRemainingDays} days) without reset to 90 days per DEC-032`);
   assert(reworkTicketDb.warranty_expiry_date === simulatedExpiryDate, 'Vector 4e: Rework ticket expiry locked to original parent expiry date');
@@ -2272,7 +2272,7 @@ async function runExtendedSuites() {
   assert(graceReworkRes.status === 201, 'Vector 5a: Intake accepted for ticket near warranty expiry');
   const graceReworkTicketId = graceReworkData.ticket?.id || graceReworkData.id;
 
-  await deliverRepairTicket(graceReworkTicketId, { touch: true });
+  await deliverRepairTicket(graceReworkTicketId, { touch: true }, { 'Authorization': `Bearer ${token}` });
   const graceReworkDb = db.prepare('SELECT warranty_duration_days, warranty_expiry_date FROM repair_tickets WHERE id = ?').get(graceReworkTicketId) as any;
   assert(graceReworkDb.warranty_duration_days === 3, 'Vector 5b: Rework with < 3 days remaining granted exactly 3-day window per FR-007.3');
   const graceExpiry = new Date(graceReworkDb.warranty_expiry_date);
@@ -2364,7 +2364,7 @@ async function runExtendedSuites() {
   const pastExpiryDate = new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString();
   db.prepare('UPDATE repair_tickets SET warranty_expiry_date = ? WHERE id = ?').run(pastExpiryDate, timingParentId);
 
-  await deliverRepairTicket(timingReworkId, { battery: true });
+  await deliverRepairTicket(timingReworkId, { battery: true }, { 'Authorization': `Bearer ${token}` });
   const timingReworkDb = db.prepare('SELECT warranty_duration_days, warranty_expiry_date FROM repair_tickets WHERE id = ?').get(timingReworkId) as any;
   assert(timingReworkDb.warranty_duration_days === 3, 'Vector 8b: Delivered after parent expiry — granted exactly 3-day window per FR-007.3');
   const timingExpiry = new Date(timingReworkDb.warranty_expiry_date);
@@ -2432,7 +2432,7 @@ async function runExtendedSuites() {
   });
   const traversalData = (await traversalRes.json()) as any;
   assert(traversalRes.status === 400, 'Vector 5a: Path traversal rejected with HTTP 400');
-  assert(traversalData.code === 'EVIDENCE_FORMAT_INVALID', 'Vector 5b: Error code EVIDENCE_FORMAT_INVALID');
+  assert(traversalData.code === 'EVIDENCE_PATH_INVALID', 'Vector 5b: Error code EVIDENCE_PATH_INVALID');
 
   // Vector 6: Manager with valid JPEG evidence → success + SHA-256 + audit log
   const validJpeg = Buffer.from('/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMCwsKCwsM', 'base64');
