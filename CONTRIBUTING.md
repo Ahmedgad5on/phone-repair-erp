@@ -17,6 +17,7 @@ Welcome to the **Modular Mobile Repair Lab, Retail POS & Fintech ERP** repositor
 
 ### 1.2 Commit Discipline
 - **Granularity:** Exactly **one commit per completed task** (`≤ 2h` unit of work).
+- **Atomic Feature Chain Exception:** Tightly coupled multi-task units forming an indivisible operational invariant (e.g. database migration + service logic + router + integration test suite) may be bundled into a single implementation commit when breaking them apart would leave intermediate commits with broken database schemas, non-compiling TypeScript, or failing test suites. In such cases, the commit message must encompass the holistic invariant, and each individual task must still receive its own dedicated, adversarial Review Brief.
 - **Conventional Commits Standard:** All commit messages must follow the Conventional Commits specification:
   - `feat:` New user-facing or domain feature
   - `fix:` Bug fix or invariant restoration

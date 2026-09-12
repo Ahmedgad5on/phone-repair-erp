@@ -1,14 +1,14 @@
 # SpecKit SDD Progress Tracker
 
-**Last Updated:** 2026-09-12T04:42:00+03:00  
+**Last Updated:** 2026-09-12T05:55:00+03:00  
 **SpecKit CLI Version:** specify 1.0.6  
-**Status:** Phase 1 (Deep Discovery) CLOSED | Phase 2 (Foundation Setup) COMPLETE | Phase 3 (Implementation / Specification) ACTIVE
+**Status:** Phase 1 (Deep Discovery) CLOSED | Phase 2 (Foundation Setup) COMPLETE | Phase 3 (Feature 001 COMPLETE, Feature 002 PROPOSED)
 
 ---
 
 ## 1. Current Phase & Sub-Step
-- **Phase:** Phase 3: Implementation & Specification Planning (Activated upon Owner Authorization)
-- **Sub-Step:** Step 3.1 — Foundation Hardening Feature Package Proposed (`specs/001-foundation-hardening/`)
+- **Phase:** Phase 3: Implementation & Specification Planning (Active)
+- **Sub-Step:** Step 3.3 — Feature 001 (Foundation Hardening) COMPLETE (+31 tests: 159 $\to$ 190, 3 risks retired: RISK-007, RISK-010, RISK-011, branch merged into main) | Feature 002 Proposed
 - **Phase 2 Closure State:** 100% Complete & Signed Off (All 7 Foundation Artifacts Ratified by Owner)
 
 ### 1.1 Foundation Complete Declaration (Phase 2 Ratified Artifacts)
@@ -16,29 +16,41 @@
 | Artifact | Canonical Path | Version / Scope | Status | Ratification Date |
 | :--- | :--- | :--- | :--- | :--- |
 | **Constitution** | `.specify/memory/constitution.md` | v1.0.1 (incorporating DEC-041 warranty governance) | Ratified Supreme Law | 2026-09-12 |
-| **Decisions Register** | `.specify/memory/decisions.md` | 42 Decisions (`DEC-001`..`042`), 40 ADRs (`ADR-001`..`040`) | CLOSED & FROZEN | 2026-09-12 |
-| **Risk Register** | `.specify/memory/risks.md` | 11 Tracked Risks (`RISK-001`..`011`: 1 Open, 10 Mitigating) | Ratified Living Document | 2026-09-12 |
+| **Decisions Register** | `.specify/memory/decisions.md` | 43 Decisions (`DEC-001`..`043`), 40 ADRs (`ADR-001`..`040`) | 42 CLOSED in Phase 2, DEC-043 Ratified in Phase 3 | 2026-09-12 |
+| **Risk Register** | `.specify/memory/risks.md` | 11 Tracked Risks (`RISK-001`..`011`: 1 Open, 7 Mitigating, 3 Mitigated [`RISK-007`, `RISK-010`, `RISK-011`]) | Active Living Document | 2026-09-12 |
 | **Domain Glossary** | `.specify/memory/glossary.md` | v1.0.0 (12 Ratified Domain Terms + Invalid Usages) | Ratified Living Document | 2026-09-12 |
 | **Repository README** | `README.md` | Architecture Blueprint, Setup, Baseline (159/66), Honest Gaps | Ratified Master Overview | 2026-09-12 |
-| **Contributing Guide** | `CONTRIBUTING.md` | SpecKit SDD Lifecycle, Adversarial Protocol, Dual Naming | Ratified Contributor Standard | 2026-09-12 |
+| **Contributing Guide** | `CONTRIBUTING.md` | SpecKit SDD Lifecycle, Adversarial Protocol, Dual Naming, Atomic Chain Exception | Ratified Contributor Standard | 2026-09-12 |
 | **Environment Template** | `.env.example` | Operational Config, Secret Placeholders, Settings Distinction | Ratified Environment Spec | 2026-09-12 |
 
+### 1.2 Feature 001 Hardening Milestone Completion
+- **Feature:** `specs/001-foundation-hardening` (Ratified Invariants Enforcement)
+- **Branch:** `feature/001-foundation-hardening` merged into `main` (`--no-ff`)
+- **Automated Tests Delivered:** +31 tests (Baseline elevated from 159 to 190 passing tests across 68 suites).
+- **Risks Retired to Mitigated:**
+  1. `RISK-007`: SQLite Durability via `PRAGMA synchronous = FULL` (Test Suite 52).
+  2. `RISK-011`: Subnet Guard Default-DENY & Device Token Gate (Test Suite 67).
+  3. `RISK-010`: Logical Spare Part Reservation & POS Contention Defense (Test Suite 68).
+- **As-Built Inventory Discovered:** `GOOGLE_REVIEW_FOLLOWUP` notification type identified in `whatsapp.service.ts` and `CrmView.tsx`.
+
 > [!NOTE]
-> **Future Candidate (Recorded per Owner Gate C — NOT in Hardening Scope):**  
-> `AUTH_SECRET` vs `JWT_SECRET` dual-path — possible consolidation / enforce no-fallback in production. Requires separate future owner gate.
+> **Future Candidates & Operational Debt (Recorded per Owner Guidance — NOT in Active Scope):**  
+> 1. `AUTH_SECRET` vs `JWT_SECRET` dual-path — possible consolidation / enforce no-fallback in production. Requires separate future owner gate.
+> 2. Test-run backup suppression — suppress or clean up automated test snapshots to avoid test-run backup accumulation (e.g. 62 backups in test runs).
+> 3. Protect `/api/docs*` behind workstation token gate.
 
 ---
 
 ## 2. Governance & Protocol Invariants
 
-1. **Unique ID Discipline (FIX-1):** Monotonic counters strictly maintained across project lifetime (`ASM-001`..`ASM-011`, `RISK-001`..`RISK-011`, `AMB-001`..`AMB-047`, `DEC-001`..`DEC-042`, `ADR-001`..`ADR-040`).
-2. **DEC to ADR Invariant:** Every architectural decision (`DEC-001` through `DEC-042`) is mapped to a formal architectural decision record (`ADR-001` to `ADR-040`) for Phase 2.
+1. **Unique ID Discipline (FIX-1):** Monotonic counters strictly maintained across project lifetime (`ASM-001`..`ASM-011`, `RISK-001`..`RISK-011`, `AMB-001`..`AMB-047`, `DEC-001`..`DEC-043`, `ADR-001`..`ADR-040`).
+2. **DEC to ADR Invariant:** Every architectural decision (`DEC-001` through `DEC-042`) is mapped to a formal architectural decision record (`ADR-001` to `ADR-040`) for Phase 2; Phase 3 decisions (`DEC-043+`) map to ratified spec/plan tasks.
 3. **Risk Status Invariant:** `Mitigated` is reserved exclusively for verified, executed proof. In-progress mitigations are marked `Mitigating`.
 4. **Canonical Path:** Single authoritative source is `c:\Users\Eng_Ahmed\Desktop\pro\.specify\memory\progress.md`.
 
 ---
 
-## 3. Cumulative Ratified Decisions Register (DEC-001 to DEC-042)
+## 3. Cumulative Ratified Decisions Register (DEC-001 to DEC-043)
 
 | ID | Topic | Confirmed Decision / Technical Invariant | Citation | Date |
 |---|---|---|---|---|
@@ -84,6 +96,7 @@
 | **DEC-040** | HR Payroll Scope & Access | In-Scope (v1) for technician commission calculation. Access restricted strictly to MANAGER and ADMIN (HTTP 403). Salary modifications require `audit_log`. | Owner Decision DEC-040 | 2026-09-12 |
 | **DEC-041** | Warranty Duration & Grace Policy | Durations are configurable per part category in settings (defaults: 90 days screens, 60 days batteries, 30 days other repairs/labor). Replaced parts inherit original window; minimum 3-day testing grace applies if remaining window < 3 days. | Owner Decision DEC-041 | 2026-09-12 |
 | **DEC-042** | Warranty Voiding Evidence | Warranty voiding on grounds of physical damage or liquid ingress requires attached photographic evidence AND Manager approval with synchronous audit logging. | Owner Decision DEC-042 | 2026-09-12 |
+| **DEC-043** | LAN Perimeter & Seed Token | Authorizes `::1` / `::ffff:127.0.0.1` (IPv6 loopback) for Windows/Node24/Electron host; constrains LAN subnets strictly to `192.168.1.0/24` and `10.0.0.0/8` per ADR-020; mandates crypto-random seed value for `master-pos-station-token`. | `server/src/middleware/subnet-guard.ts#L4-L20`, `server/src/db/seed.ts#L18-L30` | 2026-09-12 |
 
 ---
 
@@ -135,8 +148,8 @@
 | RISK-004 | Unauthorized financial mutation / void without audit | High | Mitigating | Confirmed: Synchronous audit log + HTTP 400 on missing reason + RBAC limits | `PROJECT.md#L39` |
 | RISK-005 | Amendment log pollution if empty template is treated as amended | High | Mitigating | Replace template with ratified clean Constitution v1.0.0 in Phase 2 (AMB-012) | User Directive |
 | RISK-006 | SQLite PRAGMA contention/lockout if PRAGMAs aren't centralized | Medium | Mitigating | PRAGMAs centralized in `server/src/db/database.ts#L15-L20` | `server/src/db/database.ts` |
-| RISK-007 | Loss of committed sales data on sudden shop power loss with `synchronous = NORMAL` | Critical | Mitigating (DEC-001) | Adopted `synchronous = FULL` per FIX-6 (queued as ADR-001) | FIX-6 Decision |
+| RISK-007 | Loss of committed sales data on sudden shop power loss with `synchronous = NORMAL` | Critical | Mitigated (DEC-001) | Adopted `synchronous = FULL` per FIX-6/ADR-001; verified in Test Suite 52 (`synchronous === 2`) | FIX-6 Decision / `ADR-001` |
 | RISK-008 | Database corruption or hardware disk failure without external backups | High | Mitigating (DEC-002) | Shift-close immediate backup + daily midnight backup + USB mirroring | `server/src/services/backup.service.ts` |
 | RISK-009 | Legal/tax exposure from local offline e-invoices (QR/Hash without live ETA sync) | High | Open | Accountant audit required to verify local QR invoice legal compliance in Egypt | User Directive (Q19 review) |
-| RISK-010 | Part contention race condition if technician reserves part without immediate stock lock | High | Mitigating (AMB-041) | Implement logical reservation `reserved_stock` locking parts from POS retail checkout | `server/src/modules/repair/repair.router.ts#L652` |
-| RISK-011 | LAN perimeter middleware default-allow defeats trusted_devices token gate for unregistered LAN devices | High | Mitigating | ADR-020 design ratified; implementation + HTTP 403 test pending | Code Discovery (`subnet-guard.ts#L4-L32`) |
+| RISK-010 | Part contention race condition if technician reserves part without immediate stock lock | High | Mitigated (DEC-036) | Enforce logical stock reservation (`reserved_quantity` column + DB `CHECK (stock_quantity >= reserved_quantity)` + `CHECK (reserved_quantity >= 0)`) upon `IN_REPAIR`, release on `CANCELLED`, physical deduction and reservation clearance on `DELIVERED` (DEC-036 / ADR-036), and POS retail check on `availableStock = stock - reserved` with HTTP 409 Conflict. Mitigated per risks.md lifecycle: evidenced by verbatim passing output in Test Suite 68. | `server/src/modules/repair/repair.router.ts#L652` |
+| RISK-011 | LAN perimeter middleware default-allow defeats trusted_devices token gate for unregistered LAN devices | High | Mitigated (DEC-020, DEC-043) | Enforce default-DENY subnet whitelist + workstation token gate; verified in Test Suite 67 (WAN IP, non-ratified subnet, missing token, unregistered token) | Code Discovery (`subnet-guard.ts`) |

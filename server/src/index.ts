@@ -62,6 +62,7 @@ import { portalRouter } from './modules/portal/portal.router';
 // Middlewares & Services
 import { correlationMiddleware } from './middleware/correlation';
 import { csrfProtection, enforceHttps } from './middleware/csrf';
+import { subnetAndDeviceGuard } from './middleware/subnet-guard';
 import { globalErrorHandler } from './middleware/error-handler';
 import { requireModule } from './middleware/feature-flag';
 import { logger } from './services/logger';
@@ -163,6 +164,9 @@ seedDatabase();
 wsService.init(server);
 
 export { requireModule };
+
+// 10. Subnet Firewall & Workstation Device Hardware Token Gate (DEC-020, DEC-043)
+app.use(subnetAndDeviceGuard);
 
 // Register All Core & Enterprise Modules
 app.use('/api/auth', authRouter);

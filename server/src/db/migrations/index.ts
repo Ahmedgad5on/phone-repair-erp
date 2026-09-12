@@ -9,6 +9,7 @@ import { migration007 } from './007_repair_lab_25_ideas';
 import { migration008 } from './008_retail_pos_25_ideas';
 import { migration009 } from './009_spare_parts_wholesale_25_ideas';
 import { migration010 } from './010_fintech_treasury_25_ideas';
+import { migration011 } from './011_add_reserved_quantity_to_items';
 
 export type { Migration };
 
@@ -22,7 +23,8 @@ export const migrations: Migration[] = [
   migration007,
   migration008,
   migration009,
-  migration010
+  migration010,
+  migration011
 ];
 
 export default migrations;

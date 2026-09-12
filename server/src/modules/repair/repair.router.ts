@@ -14,7 +14,10 @@ import {
   validateStatusTransition,
   checkSlaEscalations,
   generateTrackingQrBuffer,
-  ensureDefaultTemplates
+  ensureDefaultTemplates,
+  reservePartsForTicket,
+  reconcileDeliveredPartsForTicket,
+  releaseReservedPartsForTicket
 } from './repair.service';
 
 export const repairRouter = Router();
@@ -222,16 +225,29 @@ repairRouter.patch(['/tickets/:id/status', '/:id/status'], (req: Request, res: R
 
   const upperStatus = status.toUpperCase().trim();
 
+  // Logical Stock Reservation Lifecycle (DEC-036 / ADR-036 / FR-003)
+  if (upperStatus === 'IN_REPAIR') {
+    const resResult = reservePartsForTicket(ticket.id);
+    if (!resResult.success && resResult.errors && resResult.errors.length > 0) {
+      return res.status(409).json({
+        error: 'INSUFFICIENT_AVAILABLE_STOCK',
+        message: resResult.errors.join('; '),
+        code: 'PARTS_RESERVATION_FAILED'
+      });
+    }
+  } else if (upperStatus === 'DELIVERED') {
+    deliveredAt = now;
+    reconcileDeliveredPartsForTicket(ticket.id);
+    WhatsAppService.scheduleGoogleReviewPrompt(store.id, ticket.customer_phone, ticket.customer_name, store.google_maps_url);
+    db.prepare('UPDATE customers SET total_spent = total_spent + ? WHERE id = ?').run(ticket.estimated_cost, ticket.customer_id);
+  } else if (upperStatus === 'CANCELLED') {
+    releaseReservedPartsForTicket(ticket.id);
+  }
+
   if (upperStatus === 'READY' && !completedAt) {
     completedAt = now;
     const msg = `Dear ${ticket.customer_name}, your ${ticket.device_brand} ${ticket.device_model} (Ticket #${ticket.ticket_number}) is REPAIRED & READY for pickup! Total: ${ticket.estimated_cost} EGP. Secret Release OTP: ${ticket.release_otp}`;
     WhatsAppService.sendNotification(store.id, ticket.customer_phone, 'READY_FOR_PICKUP', msg);
-  }
-
-  if (upperStatus === 'DELIVERED') {
-    deliveredAt = now;
-    WhatsAppService.scheduleGoogleReviewPrompt(store.id, ticket.customer_phone, ticket.customer_name, store.google_maps_url);
-    db.prepare('UPDATE customers SET total_spent = total_spent + ? WHERE id = ?').run(ticket.estimated_cost, ticket.customer_id);
   }
 
   const checklistStr = qa_checklist !== undefined
@@ -649,8 +665,8 @@ repairRouter.patch('/tickets/:id/financials', (req: Request, res: Response) => {
   res.json({ ticket: updated, commissionDetails: { profitBasis, commissionRate, calculatedCommission: commission } });
 });
 
-// 5. Consume Replacement Part
-repairRouter.post('/tickets/:id/consume-part', (req: Request, res: Response) => {
+// 5. Consume / Allocate Replacement Part (DEC-036 / FR-003 Logical Stock Reservation)
+repairRouter.post(['/tickets/:id/consume-part', '/tickets/:id/parts'], (req: Request, res: Response) => {
   const { item_id, scrap_id, part_name, cost_price, selling_price, vendor_batch_code } = req.body;
   const ticketId = req.params.id;
 
@@ -658,9 +674,27 @@ repairRouter.post('/tickets/:id/consume-part', (req: Request, res: Response) => 
   if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
 
   const id = `rcp-${uuidv4().substring(0, 8)}`;
+  let isReserved = 0;
 
   if (item_id) {
-    db.prepare('UPDATE items SET stock_quantity = MAX(0, stock_quantity - 1) WHERE id = ?').run(item_id);
+    const item = db.prepare('SELECT id, name, stock_quantity, reserved_quantity FROM items WHERE id = ? AND deleted_at IS NULL').get(item_id) as any;
+    if (!item) return res.status(404).json({ error: 'Part item not found in inventory' });
+
+    const available = item.stock_quantity - (item.reserved_quantity || 0);
+    if (available < 1) {
+      return res.status(409).json({
+        error: 'INSUFFICIENT_AVAILABLE_STOCK',
+        message: `Not enough available unreserved stock for part "${item.name}". Stock: ${item.stock_quantity}, Reserved: ${item.reserved_quantity || 0}`,
+        available,
+        reserved: item.reserved_quantity || 0
+      });
+    }
+
+    const activeStatuses = ['IN_REPAIR', 'QA', 'READY'];
+    if (activeStatuses.includes(ticket.status)) {
+      db.prepare('UPDATE items SET reserved_quantity = reserved_quantity + 1 WHERE id = ?').run(item_id);
+      isReserved = 1;
+    }
   }
 
   if (scrap_id) {
@@ -668,14 +702,14 @@ repairRouter.post('/tickets/:id/consume-part', (req: Request, res: Response) => 
   }
 
   db.prepare(`
-    INSERT INTO repair_consumed_parts (id, ticket_id, item_id, part_name, vendor_batch_code, cost_price, selling_price)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(id, ticketId, item_id || null, part_name, vendor_batch_code || 'DIRECT_STOCK', cost_price, selling_price);
+    INSERT INTO repair_consumed_parts (id, ticket_id, item_id, part_name, vendor_batch_code, cost_price, selling_price, is_reserved)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, ticketId, item_id || null, part_name, vendor_batch_code || 'DIRECT_STOCK', cost_price, selling_price, isReserved);
 
   const totalPartsCost = (db.prepare('SELECT SUM(cost_price) as sumCost FROM repair_consumed_parts WHERE ticket_id = ?').get(ticketId) as any).sumCost || 0.0;
   db.prepare('UPDATE repair_tickets SET parts_cost = ? WHERE id = ?').run(totalPartsCost, ticketId);
 
-  res.status(201).json({ message: 'Part consumed successfully', consumedPartId: id, totalPartsCost });
+  res.status(201).json({ message: 'Part allocated successfully', consumedPartId: id, totalPartsCost, is_reserved: isReserved });
 });
 
 // 6. OTP Release Verification (CSPRNG Verified)
