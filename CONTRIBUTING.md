@@ -204,6 +204,9 @@ Counters for project artifacts are strictly monotonic and permanent across the l
 - `FR-NNN` / `NFR-NNN` (Feature Requirements)
 Once assigned, an identifier is **never deleted, reused, or renumbered**. If a decision or requirement is superseded, it is marked as `Superseded by [ID]`, preserving historical traceability.
 
+### 5.5 No Synthetic Actors on Financial Events (DEC-046)
+All status transitions that post to the general ledger **REQUIRE** a valid JWT context. The audit actor is always the authenticated user. No synthetic identity (`'system'`, fallback user, or hardcoded actor) may ever touch financial records (`journal_entries`, `journal_entry_lines`). If the authenticated user cannot be resolved, the request must be rejected before any state transition or ledger posting occurs.
+
 ---
 
 ## 6. Glossary Compliance & Ubiquitous Language

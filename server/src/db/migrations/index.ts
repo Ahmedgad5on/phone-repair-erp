@@ -13,6 +13,7 @@ import { migration011 } from './011_add_reserved_quantity_to_items';
 import { migration012 } from './012_add_po_approval_columns';
 import { migration013 } from './013_add_stocktake_freeze';
 import { migration014 } from './014_add_warranty_governance_columns';
+import { migration015 } from './015_add_defective_scrap_lifecycle';
 
 export type { Migration };
 
@@ -30,7 +31,8 @@ export const migrations: Migration[] = [
   migration011,
   migration012,
   migration013,
-  migration014
+  migration014,
+  migration015
 ];
 
 export default migrations;

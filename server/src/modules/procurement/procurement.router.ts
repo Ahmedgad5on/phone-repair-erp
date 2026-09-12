@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { logAudit } from '../../services/audit.service';
 import { InventoryRepository } from '../../repositories/inventory.repository';
 import { InventoryService } from '../inventory/inventory.service';
+import { requireAuth, requireRole, AuthenticatedRequest } from '../../middleware/auth';
 
 export const procurementRouter = Router();
 
@@ -340,4 +341,77 @@ procurementRouter.post('/predictive-po', (req: Request, res: Response) => {
 procurementRouter.get('/supplier-matrix/:item_id', (req: Request, res: Response) => {
   const matrix = InventoryRepository.getSupplierPriceMatrix(req.params.item_id as string);
   res.json(matrix);
+});
+
+// =========================================================================
+// 13. RTV Rejection — DEFECTIVE_SCRAP Lifecycle (FR-010 / DEC-035)
+// =========================================================================
+procurementRouter.post('/rtv/:id/reject', requireAuth, requireRole(['Manager', 'Admin']), (req: AuthenticatedRequest, res: Response) => {
+  const rtvId = req.params.id as string;
+  const userId = req.user!.userId;
+  const { reason } = req.body;
+
+  const rtv = db.prepare(
+    `SELECT sr.*, i.stock_quantity, i.reserved_quantity
+     FROM supplier_returns sr
+     JOIN items i ON i.id = sr.item_id
+     WHERE sr.id = ?`
+  ).get(rtvId) as any;
+
+  if (!rtv) {
+    return res.status(404).json({ error: 'Supplier return not found' });
+  }
+
+  if (rtv.status !== 'PENDING') {
+    return res.status(422).json({ error: `Return is already ${rtv.status}` });
+  }
+
+  if (!reason || typeof reason !== 'string' || reason.trim().length < 3) {
+    return res.status(422).json({ error: 'Rejection reason is required (min 3 characters)' });
+  }
+
+  db.transaction(() => {
+    // Mark supplier return as rejected
+    db.prepare(
+      `UPDATE supplier_returns SET status = 'REJECTED', rejected_at = datetime('now'), rejected_by = ? WHERE id = ?`
+    ).run(userId, rtvId);
+
+    // Transition item to DEFECTIVE_SCRAP and zero stock (item physically pulled from shelf)
+    db.prepare(
+      `UPDATE items SET item_status = 'DEFECTIVE_SCRAP', stock_quantity = 0 WHERE id = ?`
+    ).run(rtv.item_id);
+
+    // Release any reservations on the defective item
+    if (rtv.reserved_quantity > 0) {
+      db.prepare(
+        `UPDATE items SET reserved_quantity = 0 WHERE id = ?`
+      ).run(rtv.item_id);
+
+      // Release reservations on affected repair tickets
+      db.prepare(
+        `UPDATE repair_tickets SET reserved_stock = 0 WHERE reserved_item_id = ? AND status IN ('PENDING', 'DIAGNOSED', 'IN_PROGRESS')`
+      ).run(rtv.item_id);
+    }
+
+    logAudit({
+      userId,
+      action: 'RTV_REJECTED',
+      entityType: 'supplier_return',
+      entityId: rtvId,
+      newValues: {
+        status: 'REJECTED',
+        item_id: rtv.item_id,
+        item_status: 'DEFECTIVE_SCRAP',
+        reason: reason.trim(),
+        reservations_released: rtv.reserved_quantity > 0,
+      },
+    });
+  })();
+
+  res.json({
+    success: true,
+    message: `Return rejected. Item marked as DEFECTIVE_SCRAP.`,
+    item_id: rtv.item_id,
+    reservations_released: rtv.reserved_quantity > 0,
+  });
 });

@@ -5,6 +5,7 @@ import { logAudit } from '../../services/audit.service';
 import { wsService } from '../../services/ws.service';
 import { InventoryRepository } from '../../repositories/inventory.repository';
 import { InventoryService } from './inventory.service';
+import { requireAuth, requireRole, AuthenticatedRequest } from '../../middleware/auth';
 
 export const inventoryRouter = Router();
 
@@ -585,4 +586,80 @@ inventoryRouter.post('/cycle-count-reconcile', (req: Request, res: Response) => 
   });
 
   res.status(201).json(result);
+});
+
+// =========================================================================
+// 21. Liquidation — DEFECTIVE_SCRAP Sale (FR-010 / DEC-035)
+// =========================================================================
+inventoryRouter.post('/scrap/liquidate', requireAuth, requireRole(['Manager']), (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.user!.userId;
+  const { item_id, sale_amount, buyer_name, notes } = req.body;
+
+  if (!item_id || typeof item_id !== 'string') {
+    return res.status(422).json({ error: 'item_id is required' });
+  }
+  if (typeof sale_amount !== 'number' || sale_amount < 0) {
+    return res.status(422).json({ error: 'sale_amount must be a non-negative number' });
+  }
+
+  const item = db.prepare(
+    `SELECT * FROM items WHERE id = ? AND deleted_at IS NULL`
+  ).get(item_id) as any;
+
+  if (!item) {
+    return res.status(404).json({ error: 'Item not found' });
+  }
+  if (item.item_status !== 'DEFECTIVE_SCRAP') {
+    return res.status(422).json({ error: `Item is not DEFECTIVE_SCRAP (current status: ${item.item_status || 'ACTIVE'})` });
+  }
+  if (item.stock_quantity !== 0) {
+    return res.status(422).json({ error: 'Item stock_quantity must be 0 before liquidation' });
+  }
+
+  try {
+    db.transaction(() => {
+      // Mark item as LIQUIDATED
+      db.prepare(
+        `UPDATE items SET item_status = 'LIQUIDATED' WHERE id = ?`
+      ).run(item_id);
+
+    // Record the liquidation in supplier_returns (reuse as liquidation record)
+    // SQLite doesn't support ORDER BY in UPDATE, so use a subquery
+    const rtvUpdate = db.prepare(
+      `UPDATE supplier_returns
+       SET status = 'LIQUIDATED', liquidated_at = datetime('now'), liquidated_by = ?, liquidation_amount = ?
+       WHERE id = (
+         SELECT id FROM supplier_returns
+         WHERE item_id = ? AND status = 'REJECTED'
+         ORDER BY created_at DESC LIMIT 1
+       )`
+    ).run(userId, sale_amount, item_id);
+
+    if (rtvUpdate.changes === 0) {
+      throw new Error('No rejected supplier return found for this item');
+    }
+
+    logAudit({
+      userId,
+      action: 'SCRAP_LIQUIDATED',
+      entityType: 'item',
+      entityId: item_id,
+      newValues: {
+        item_status: 'LIQUIDATED',
+        sale_amount,
+        buyer_name: buyer_name || null,
+        notes: notes || null,
+      },
+    });
+  })();
+
+  res.json({
+    success: true,
+    message: `Item liquidated successfully`,
+    item_id,
+    sale_amount,
+  });
+  } catch (err: any) {
+    return res.status(422).json({ error: err.message || 'Liquidation failed' });
+  }
 });

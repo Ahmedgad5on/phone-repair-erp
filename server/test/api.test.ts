@@ -2536,6 +2536,173 @@ async function runExtendedSuites() {
   assert(expenseAudit !== undefined, 'Vector 1g: WARRANTY_EXPENSE_POSTED audit log entry exists');
   if (expenseAudit) assert(expenseAudit.user_id !== 'system', `Vector 1g: Audit log records real actor (actual: ${expenseAudit.user_id})`);
 
+  // =========================================================================
+  // TEST 75: RTV Rejection, DEFECTIVE_SCRAP Lifecycle & Liquidation (FR-010, DEC-035)
+  // =========================================================================
+  console.log('\n[Test Suite 75: RTV Rejection, DEFECTIVE_SCRAP Lifecycle & Liquidation (FR-010, DEC-035)]');
+
+  // Create manager user for liquidation tests
+  const mgrScrapUserId = 'usr-mgr-scrap-' + uuidv4().slice(0, 6);
+  db.prepare(
+    `INSERT INTO users (id, username, name, role, store_id) VALUES (?, ?, ?, 'Manager', ?)`
+  ).run(mgrScrapUserId, 'mgr_scrap_' + mgrScrapUserId.slice(-4), 'Manager Scrap', defaultStore.id);
+  const mgrScrapToken = signToken({ userId: mgrScrapUserId, username: 'manager_scrap', role: 'Manager', storeId: defaultStore.id });
+
+  // Create admin user for RTV rejection tests
+  const admScrapUserId = 'usr-admin-scrap-' + uuidv4().slice(0, 6);
+  db.prepare(
+    `INSERT INTO users (id, username, name, role, store_id) VALUES (?, ?, ?, 'Admin', ?)`
+  ).run(admScrapUserId, 'admin_scrap_' + admScrapUserId.slice(-4), 'Admin Scrap', defaultStore.id);
+  const admScrapToken = signToken({ userId: admScrapUserId, username: 'admin_scrap', role: 'Admin', storeId: defaultStore.id });
+
+  // Create technician and cashier tokens for RBAC tests
+  const techScrapUserId = 'usr-tech-scrap-' + uuidv4().slice(0, 6);
+  db.prepare(
+    `INSERT INTO users (id, username, name, role, store_id) VALUES (?, ?, ?, 'Technician', ?)`
+  ).run(techScrapUserId, 'tech_scrap_' + techScrapUserId.slice(-4), 'Tech Scrap', defaultStore.id);
+  const techScrapToken = signToken({ userId: techScrapUserId, username: 'tech_scrap', role: 'Technician', storeId: defaultStore.id });
+
+  const cashScrapUserId = 'usr-cash-scrap-' + uuidv4().slice(0, 6);
+  db.prepare(
+    `INSERT INTO users (id, username, name, role, store_id) VALUES (?, ?, ?, 'Cashier', ?)`
+  ).run(cashScrapUserId, 'cash_scrap_' + cashScrapUserId.slice(-4), 'Cashier Scrap', defaultStore.id);
+  const cashScrapToken = signToken({ userId: cashScrapUserId, username: 'cashier_scrap', role: 'Cashier', storeId: defaultStore.id });
+
+  // Setup: create a supplier return record for an existing item
+  const scrapItem = db.prepare("SELECT * FROM items WHERE deleted_at IS NULL AND stock_quantity > 0 LIMIT 1").get() as any;
+  assert(scrapItem !== undefined, 'Vector 0: Test fixture item available');
+
+  const rtvId = `rtv-${uuidv4().substring(0, 8)}`;
+  db.prepare(
+    `INSERT INTO supplier_returns (id, store_id, item_id, supplier_name, reason, status)
+     VALUES (?, ?, ?, 'Test Supplier', 'Defective on arrival', 'PENDING')`
+  ).run(rtvId, defaultStore.id, scrapItem.id);
+
+  // Vector a: Non-manager liquidation attempt → 403
+  const techLiqRes = await fetch(`${baseUrl}/api/inventory/scrap/liquidate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${techScrapToken}` },
+    body: JSON.stringify({ item_id: scrapItem.id, sale_amount: 1000 })
+  });
+  assert(techLiqRes.status === 403, `Vector a: Non-manager liquidation blocked (actual: ${techLiqRes.status})`);
+
+  // Vector b: RTV reject without auth → 401
+  const unauthRtvRes = await fetch(`${baseUrl}/api/procurement/rtv/${rtvId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason: 'Supplier rejected return' })
+  });
+  assert(unauthRtvRes.status === 401, `Vector b: RTV reject without auth → 401 (actual: ${unauthRtvRes.status})`);
+
+  // Vector c: RTV reject without reason → 422
+  const noReasonRtvRes = await fetch(`${baseUrl}/api/procurement/rtv/${rtvId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${admScrapToken}` },
+    body: JSON.stringify({})
+  });
+  assert(noReasonRtvRes.status === 422, `Vector c: RTV reject without reason → 422 (actual: ${noReasonRtvRes.status})`);
+
+  // Vector d: RTV reject succeeds + item marked DEFECTIVE_SCRAP
+  const rejectRes = await fetch(`${baseUrl}/api/procurement/rtv/${rtvId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${admScrapToken}` },
+    body: JSON.stringify({ reason: 'Supplier rejected return - item defective' })
+  });
+  const rejectData = (await rejectRes.json()) as any;
+  assert(rejectRes.status === 200, `Vector d: RTV reject succeeds (actual: ${rejectRes.status})`);
+  assert(rejectData.success === true, 'Vector d: Response indicates success');
+  assert(rejectData.item_id === scrapItem.id, 'Vector d: Correct item_id returned');
+
+  // Vector d2: Item is now DEFECTIVE_SCRAP
+  const defectiveItem = db.prepare("SELECT * FROM items WHERE id = ?").get(scrapItem.id) as any;
+  assert(defectiveItem.item_status === 'DEFECTIVE_SCRAP', `Vector d2: Item status = DEFECTIVE_SCRAP (actual: ${defectiveItem.item_status})`);
+
+  // Vector d3: Supplier return status = REJECTED
+  const rejectedRtv = db.prepare("SELECT * FROM supplier_returns WHERE id = ?").get(rtvId) as any;
+  assert(rejectedRtv.status === 'REJECTED', `Vector d3: RTV status = REJECTED (actual: ${rejectedRtv.status})`);
+  assert(rejectedRtv.rejected_by === admScrapUserId, `Vector d3: rejected_by = admin user (actual: ${rejectedRtv.rejected_by})`);
+
+  // Vector d4: Audit log records rejection
+  const rtvAudit = db.prepare("SELECT * FROM audit_logs WHERE action = 'RTV_REJECTED' AND entity_id = ?").get(rtvId) as any;
+  assert(rtvAudit !== undefined, 'Vector d4: RTV_REJECTED audit log entry exists');
+  if (rtvAudit) assert(rtvAudit.user_id === admScrapUserId, `Vector d4: Audit records real actor (actual: ${rtvAudit.user_id})`);
+
+  // Vector e: POS sale of DEFECTIVE_SCRAP item → 409
+  const posSaleRes = await fetch(`${baseUrl}/api/retail/sales`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cashScrapToken}` },
+    body: JSON.stringify({
+      customer_name: 'Test Customer',
+      payment_method: 'CASH',
+      items: [{ item_id: scrapItem.id, quantity: 1 }],
+    })
+  });
+  const posSaleData = (await posSaleRes.json()) as any;
+  assert(posSaleRes.status === 409, `Vector e: POS sale of DEFECTIVE_SCRAP → 409 (actual: ${posSaleRes.status})`);
+  assert(posSaleData.code === 'ITEM_IS_DEFECTIVE_SCRAP', `Vector e: Error code = ITEM_IS_DEFECTIVE_SCRAP (actual: ${posSaleData.code})`);
+
+  // Vector f: Liquidation without auth → 401
+  const unauthLiqRes = await fetch(`${baseUrl}/api/inventory/scrap/liquidate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ item_id: scrapItem.id, sale_amount: 500 })
+  });
+  assert(unauthLiqRes.status === 401, `Vector f: Liquidation without auth → 401 (actual: ${unauthLiqRes.status})`);
+
+  // Vector g: Liquidation of non-DEFECTIVE_SCRAP item → 422
+  const activeItem = db.prepare("SELECT * FROM items WHERE item_status IS NULL AND deleted_at IS NULL AND stock_quantity > 0 LIMIT 1").get() as any;
+  if (activeItem) {
+    const activeLiqRes = await fetch(`${baseUrl}/api/inventory/scrap/liquidate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${mgrScrapToken}` },
+      body: JSON.stringify({ item_id: activeItem.id, sale_amount: 1000 })
+    });
+    assert(activeLiqRes.status === 422, `Vector g: Liquidation of ACTIVE item → 422 (actual: ${activeLiqRes.status})`);
+  }
+
+  // Vector h: Liquidation of DEFECTIVE_SCRAP item by Manager succeeds
+  const liqRes = await fetch(`${baseUrl}/api/inventory/scrap/liquidate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${mgrScrapToken}` },
+    body: JSON.stringify({ item_id: scrapItem.id, sale_amount: 5000, buyer_name: 'Scrap Buyer Co.', notes: 'Sold as scrap' })
+  });
+  const liqData = (await liqRes.json()) as any;
+  assert(liqRes.status === 200, `Vector h: Manager liquidation succeeds (actual: ${liqRes.status})`);
+  assert(liqData.success === true, 'Vector h: Response indicates success');
+  assert(liqData.sale_amount === 5000, `Vector h: Sale amount recorded (actual: ${liqData.sale_amount})`);
+
+  // Vector h2: Item is now LIQUIDATED
+  const liquidatedItem = db.prepare("SELECT * FROM items WHERE id = ?").get(scrapItem.id) as any;
+  assert(liquidatedItem.item_status === 'LIQUIDATED', `Vector h2: Item status = LIQUIDATED (actual: ${liquidatedItem.item_status})`);
+
+  // Vector h3: Audit log records liquidation
+  const liqAudit = db.prepare("SELECT * FROM audit_logs WHERE action = 'SCRAP_LIQUIDATED' AND entity_id = ?").get(scrapItem.id) as any;
+  assert(liqAudit !== undefined, 'Vector h3: SCRAP_LIQUIDATED audit log entry exists');
+  if (liqAudit) {
+    assert(liqAudit.user_id === mgrScrapUserId, `Vector h3: Audit records manager actor (actual: ${liqAudit.user_id})`);
+    const newVals = JSON.parse(liqAudit.new_values || '{}');
+    assert(newVals.sale_amount === 5000, `Vector h3: Audit records sale_amount (actual: ${newVals.sale_amount})`);
+    assert(newVals.buyer_name === 'Scrap Buyer Co.', `Vector h3: Audit records buyer_name (actual: ${newVals.buyer_name})`);
+  }
+
+  // Vector i: Re-RTV of same item → 422 (already rejected)
+  const reRtvRes = await fetch(`${baseUrl}/api/procurement/rtv/${rtvId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${admScrapToken}` },
+    body: JSON.stringify({ reason: 'Attempt re-reject' })
+  });
+  assert(reRtvRes.status === 422, `Vector i: Re-reject of already-rejected RTV → 422 (actual: ${reRtvRes.status})`);
+
+  // Vector j: Liquidation of already-liquidated item → 422
+  const reLiqRes = await fetch(`${baseUrl}/api/inventory/scrap/liquidate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${mgrScrapToken}` },
+    body: JSON.stringify({ item_id: scrapItem.id, sale_amount: 1000 })
+  });
+  assert(reLiqRes.status === 422, `Vector j: Re-liquidation of LIQUIDATED item → 422 (actual: ${reLiqRes.status})`);
+
+  console.log('[Suite 75 Complete: RTV Rejection + DEFECTIVE_SCRAP + Liquidation]');
+
   // Close ephemeral test server
   testServer.close();
 }

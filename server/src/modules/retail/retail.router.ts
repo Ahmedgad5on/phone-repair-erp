@@ -144,6 +144,11 @@ retailRouter.post('/sales', (req: Request, res: Response) => {
       return res.status(400).json({ error: `Item not found: ${itm.item_id}` });
     }
 
+    // FR-010 / DEC-035: DEFECTIVE_SCRAP items cannot be sold
+    if (dbItem.item_status === 'DEFECTIVE_SCRAP') {
+      return res.status(409).json({ error: `Item ${dbItem.name} is marked DEFECTIVE_SCRAP and cannot be sold`, code: 'ITEM_IS_DEFECTIVE_SCRAP' });
+    }
+
     const requestedQty = Math.max(1, Math.floor(itm.quantity || 1));
 
     // DEC-023 / DEC-030: Stocktake freeze detection

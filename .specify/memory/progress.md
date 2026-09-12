@@ -8,7 +8,8 @@
 
 ## 1. Current Phase & Sub-Step
 - **Phase:** Phase 3: Implementation & Specification Planning (Active)
-- **Sub-Step:** Step 3.6 — Feature 003 (Warranty Governance & Defective Parts Lifecycle) Batch 2 COMPLETE (+25 tests: 285 → 310, 0 failures; awaiting Brief 2 Gate). TASK-3.3 (Void-Warranty RBAC) & TASK-3.4 (Warranty Parts Expense) delivered.
+- **Status:** Phase 3: Implementation & Specification Planning (Active)
+- **Sub-Step:** Step 3.7 — Feature 003 (Warranty Governance & Defective Parts Lifecycle) Batch 3 EXECUTING. TASK-3.5 (RTV Rejection + DEFECTIVE_SCRAP + Liquidation) in progress.
 - **Phase 2 Closure State:** 100% Complete & Signed Off (All 7 Foundation Artifacts Ratified by Owner)
 
 ### 1.1 Foundation Complete Declaration (Phase 2 Ratified Artifacts)
@@ -78,6 +79,14 @@
 - **R4 Violation:** #1 (TASK-3.1+3.2 bundling misapplied atomic-chain exception).
 - **Status:** Batch 2 COMPLETE, awaiting Brief 2 Gate approval.
 
+### Standing Rules (Born from Feature 003 Cycle)
+
+| # | Rule | Origin |
+|---|---|---|
+| R5 | **"Skipped = Not Done"** — If a mandated test vector is skipped (e.g. "gracefully skipped when no SCREEN items available"), it is treated as NOT EXECUTED. The task is incomplete until the vector runs and passes. | Suite 74 incident — test was written to skip when no fixture existed |
+| R6 | **"Mandated paste closes ONLY with pasted verbatim output"** — Checkboxes never substitute for terminal output. Any task whose mandate was "paste verbatim output" closes only with the actual pasted block. | Brief 2 rejection — FIX A was asserted with checkboxes instead of verbatim output |
+| R7 | **"READ-BACK from disk"** — After mandated text edits to spec/plan/contributing files, the agent must READ FILE BACK FROM DISK and end response with "READ-BACK:" block quoting saved text. | Owner directive — prevents phantom writes where edit tool reports success but content is stale |
+
 ---
 
 ## 2. Governance & Protocol Invariants
@@ -138,6 +147,7 @@
 | **DEC-043** | LAN Perimeter & Seed Token | Authorizes `::1` / `::ffff:127.0.0.1` (IPv6 loopback) for Windows/Node24/Electron host; constrains LAN subnets strictly to `192.168.1.0/24` and `10.0.0.0/8` per ADR-020; mandates crypto-random seed value for `master-pos-station-token`. | `server/src/middleware/subnet-guard.ts#L4-L20`, `server/src/db/seed.ts#L18-L30` | 2026-09-12 |
 | **DEC-044** | Shift-Close Backup Blocking | Backup failure during shift close BLOCKS the close (HTTP 500) + SHIFT_CLOSE_BACKUP_FAILED audit event + red banner. Conservative-by-design: with no UPS (DEC-027), an unclosed shift beats an unprotected night. | Owner Ratification DEC-044 | 2026-09-12 |
 | **DEC-045** | Warranty Evidence USB Mirroring | Warranty evidence uploads directory (`uploads/warranty-evidence/`) included in USB disaster-recovery mirroring (DEC-003 scope expansion). | Owner Ratification DEC-045 | 2026-09-12 |
+| **DEC-046** | Ledger-Posting Auth Requirement | All status transitions that post to the general ledger REQUIRE a valid JWT; the audit actor is always the authenticated user; no synthetic identity ever touches financial records. | Owner Ratification DEC-046 | 2026-09-12 |
 
 ---
 
