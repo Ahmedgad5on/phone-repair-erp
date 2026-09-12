@@ -328,7 +328,7 @@ coreRouter.post('/shifts/close', async (req: Request, res: Response) => {
     shift: updated,
     hasDeficit: diff < 0,
     deficitAmount: diff < 0 ? Math.abs(diff) : 0,
-    backup: { filename: backupInfo.filename, sizeBytes: backupInfo.sizeBytes }
+    backup: { filename: backupInfo.filename, sizeBytes: backupInfo.sizeBytes, path: backupInfo.path }
   });
 });
 

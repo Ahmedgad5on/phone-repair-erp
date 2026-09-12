@@ -1,3 +1,5 @@
+process.env.NODE_ENV = 'test';
+
 import fs from 'fs';
 import path from 'path';
 import db from '../src/db/database';
@@ -25,7 +27,7 @@ import { TradeInService } from '../src/modules/retail/trade-in.service';
 import { checkSlaEscalations } from '../src/modules/repair/repair.service';
 import { WhatsAppService } from '../src/services/whatsapp.service';
 import { signToken, verifyToken } from '../src/middleware/auth';
-import { createDatabaseBackup, listBackups } from '../src/services/backup.service';
+import { createDatabaseBackup, listBackups, listProductionBackups, getBackupDir, cleanTestBackups, BASE_BACKUP_DIR, TEST_SCRATCH_DIR } from '../src/services/backup.service';
 import { logAudit, getRecentAuditLogs } from '../src/services/audit.service';
 import { RepairRepository } from '../src/repositories/repair.repository';
 import { InventoryRepository } from '../src/repositories/inventory.repository';
@@ -1827,7 +1829,7 @@ async function runExtendedSuites() {
   assert(shiftCloseData.backup !== null && typeof shiftCloseData.backup.filename === 'string', 'Vector 1d: Shift close response contains backup snapshot metadata');
 
   // Verify backup exists physically on disk and has positive size (precedes response per ADR-002)
-  const backupOnDisk = path.join(process.cwd(), 'backups', shiftCloseData.backup.filename);
+  const backupOnDisk = shiftCloseData.backup.path || path.join(process.cwd(), 'backups', shiftCloseData.backup.filename);
   assert(fs.existsSync(backupOnDisk) && fs.statSync(backupOnDisk).size > 0, 'Vector 1e: Verified SQLite backup snapshot physically exists on disk (RPO=0 guaranteed)');
 
   // Vector 2: Verify audit trail contains the user ID
@@ -2092,6 +2094,217 @@ async function runExtendedSuites() {
   assert(finalizedSci.variance === -1, 'Vector 4l: stock_count_items variance recorded as -1');
   assert(finalizedSci.counted_quantity === 45, 'Vector 4m: stock_count_items counted_quantity recorded as 45');
 
+  // =========================================================================
+  // TEST 72: Warranty Duration Matrix, Window Inheritance & 3-Day Grace (DEC-041, DEC-032, FR-007)
+  // =========================================================================
+  // =========================================================================
+  // TEST 72: Warranty Duration Matrix, Window Inheritance & 3-Day Grace (DEC-041, DEC-032, FR-007)
+  // =========================================================================
+  console.log('\n[Test Suite 72: Warranty Duration Matrix, Window Inheritance & 3-Day Grace (DEC-041, DEC-032, FR-007)]');
+
+  // Helper: Traverse lifecycle states INTAKE -> DIAGNOSED -> IN_REPAIR -> READY -> DELIVERED
+  async function deliverRepairTicket(tktId: string, qaChecklist: any) {
+    await fetch(`${baseUrl}/api/repair/tickets/${tktId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'DIAGNOSED' })
+    });
+    await fetch(`${baseUrl}/api/repair/tickets/${tktId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'IN_REPAIR' })
+    });
+    const readyRes = await fetch(`${baseUrl}/api/repair/tickets/${tktId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'READY', qa_checklist: qaChecklist })
+    });
+    const deliverRes = await fetch(`${baseUrl}/api/repair/tickets/${tktId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'DELIVERED' })
+    });
+    return { readyRes, deliverRes };
+  }
+
+  // Vector 1: Screen repair gets 90-day warranty (DEC-041)
+  const screenTicketRes = await fetch(`${baseUrl}/api/repair/tickets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_name: 'Amr Warranty Test',
+      customer_phone: '01055551111',
+      device_brand: 'Apple',
+      device_model: 'iPhone 13 Pro',
+      reported_defects: 'Broken OLED Screen Replacement',
+      priority: 'NORMAL',
+      estimated_cost: 3500
+    })
+  });
+  const screenTicketData = (await screenTicketRes.json()) as any;
+  assert(screenTicketRes.status === 201, 'Vector 1a: Screen repair ticket created with HTTP 201');
+  const screenTicketId = screenTicketData.ticket?.id || screenTicketData.id;
+
+  const { readyRes: screenReadyRes, deliverRes: screenDeliveredRes } = await deliverRepairTicket(screenTicketId, { screen: true, touch: true, power: true });
+  assert(screenReadyRes.status === 200, 'Vector 1b: Screen ticket transitioned to READY');
+  assert(screenDeliveredRes.status === 200, 'Vector 1c: Screen ticket delivered');
+
+  const screenTicketDb = db.prepare('SELECT warranty_duration_days, warranty_expiry_date FROM repair_tickets WHERE id = ?').get(screenTicketId) as any;
+  assert(screenTicketDb.warranty_duration_days === 90, 'Vector 1d: Screen repair assigned 90-day warranty duration per DEC-041');
+  const screenExpiryDate = new Date(screenTicketDb.warranty_expiry_date);
+  const screenDeliveredDate = new Date();
+  const screenDiffDays = Math.round((screenExpiryDate.getTime() - screenDeliveredDate.getTime()) / (24 * 60 * 60 * 1000));
+  assert(screenDiffDays >= 89 && screenDiffDays <= 90, 'Vector 1e: Screen warranty expiry date calculated as 90 days from delivery');
+
+  const screenCertRes = await fetch(`${baseUrl}/api/repair/tickets/${screenTicketId}/warranty-cert`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  const screenCert = (await screenCertRes.json()) as any;
+  assert(screenCertRes.status === 201, 'Vector 1f: Screen warranty certificate generated');
+  assert(screenCert.warranty_days === 90, 'Vector 1g: Certificate records 90 warranty days');
+  assert(screenCert.warranty_type === 'SCREEN', 'Vector 1h: Certificate records category SCREEN');
+
+  // Vector 2: Battery repair gets 60-day warranty (DEC-041)
+  const battTicketRes = await fetch(`${baseUrl}/api/repair/tickets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_name: 'Hassan Battery Test',
+      customer_phone: '01055552222',
+      device_brand: 'Apple',
+      device_model: 'iPhone 12',
+      reported_defects: 'Original Battery Replacement 80% Health',
+      priority: 'NORMAL',
+      estimated_cost: 1200
+    })
+  });
+  const battTicketData = (await battTicketRes.json()) as any;
+  assert(battTicketRes.status === 201, 'Vector 2a: Battery repair ticket created with HTTP 201');
+  const battTicketId = battTicketData.ticket?.id || battTicketData.id;
+
+  await deliverRepairTicket(battTicketId, { battery: true, charging: true });
+  const battTicketDb = db.prepare('SELECT warranty_duration_days, warranty_expiry_date FROM repair_tickets WHERE id = ?').get(battTicketId) as any;
+  assert(battTicketDb.warranty_duration_days === 60, 'Vector 2b: Battery repair assigned 60-day warranty duration per DEC-041');
+
+  // Vector 3: Motherboard/Other repair gets 30-day warranty (DEC-041)
+  const mbTicketRes = await fetch(`${baseUrl}/api/repair/tickets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_name: 'Kareem Board Test',
+      customer_phone: '01055553333',
+      device_brand: 'Samsung',
+      device_model: 'Galaxy S22',
+      reported_defects: 'Charging Flex IC Sub-PBA Port Replacement',
+      priority: 'NORMAL',
+      estimated_cost: 600
+    })
+  });
+  const mbTicketData = (await mbTicketRes.json()) as any;
+  assert(mbTicketRes.status === 201, 'Vector 3a: Motherboard/Port repair ticket created with HTTP 201');
+  const mbTicketId = mbTicketData.ticket?.id || mbTicketData.id;
+
+  await deliverRepairTicket(mbTicketId, { port: true, power: true });
+  const mbTicketDb = db.prepare('SELECT warranty_duration_days, warranty_expiry_date FROM repair_tickets WHERE id = ?').get(mbTicketId) as any;
+  assert(mbTicketDb.warranty_duration_days === 30, 'Vector 3b: Motherboard/Port repair assigned 30-day warranty duration per DEC-041');
+
+  // Vector 4: Rework ticket inherits remaining window without resetting to full 90 days (DEC-032)
+  const simulatedRemainingDays = 50;
+  const simulatedExpiryDate = new Date(Date.now() + simulatedRemainingDays * 24 * 60 * 60 * 1000).toISOString();
+  db.prepare('UPDATE repair_tickets SET warranty_expiry_date = ? WHERE id = ?').run(simulatedExpiryDate, screenTicketId);
+
+  const reworkTicketRes = await fetch(`${baseUrl}/api/repair/tickets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_name: 'Amr Warranty Test',
+      customer_phone: '01055551111',
+      device_brand: 'Apple',
+      device_model: 'iPhone 13 Pro',
+      reported_defects: 'Screen Flickering Lines Under Warranty Claim',
+      priority: 'URGENT',
+      estimated_cost: 0,
+      parent_ticket_id: screenTicketId,
+      is_warranty_repair: 1
+    })
+  });
+  const reworkTicketData = (await reworkTicketRes.json()) as any;
+  assert(reworkTicketRes.status === 201, 'Vector 4a: Warranty rework ticket intake accepted with valid parent ticket');
+  const reworkTicketId = reworkTicketData.ticket?.id || reworkTicketData.id;
+  assert(reworkTicketData.ticket?.is_warranty_repair === 1 || reworkTicketData.is_warranty_repair === 1, 'Vector 4b: Rework ticket flagged as is_warranty_repair = 1');
+  assert(reworkTicketData.ticket?.parent_ticket_id === screenTicketId || reworkTicketData.parent_ticket_id === screenTicketId, 'Vector 4c: Rework ticket linked to parent ticket id');
+
+  await deliverRepairTicket(reworkTicketId, { screen: true, touch: true });
+  const reworkTicketDb = db.prepare('SELECT warranty_duration_days, warranty_expiry_date FROM repair_tickets WHERE id = ?').get(reworkTicketId) as any;
+  assert(reworkTicketDb.warranty_duration_days === simulatedRemainingDays, `Vector 4d: Rework ticket inherited remaining window (${simulatedRemainingDays} days) without reset to 90 days per DEC-032`);
+  assert(reworkTicketDb.warranty_expiry_date === simulatedExpiryDate, 'Vector 4e: Rework ticket expiry locked to original parent expiry date');
+
+  // Vector 5: Rework ticket with < 3 days remaining receives minimum 3-day testing grace (DEC-041)
+  const defaultStoreObj = db.prepare('SELECT id FROM stores LIMIT 1').get() as any;
+  const defaultCustomerObj = db.prepare('SELECT id FROM customers LIMIT 1').get() as any;
+  const maxTktObj1 = db.prepare('SELECT COALESCE(MAX(ticket_number), 1000) as m FROM repair_tickets').get() as any;
+  const nextTkt1 = maxTktObj1.m + 1000;
+
+  const parentGraceTicketId = 'tkt-grace-parent-' + uuidv4().slice(0, 6);
+  const oneDayRemainingExpiry = new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString();
+  db.prepare(`
+    INSERT INTO repair_tickets (id, ticket_number, store_id, customer_id, device_brand, device_model, reported_defects, release_otp, status, warranty_duration_days, warranty_expiry_date)
+    VALUES (?, ?, ?, ?, 'Apple', 'iPhone 11', 'Original Screen Repair', '1234', 'DELIVERED', 90, ?)
+  `).run(parentGraceTicketId, nextTkt1, defaultStoreObj.id, defaultCustomerObj.id, oneDayRemainingExpiry);
+
+  const graceReworkRes = await fetch(`${baseUrl}/api/repair/tickets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_name: 'Grace Customer',
+      customer_phone: '01099998888',
+      device_brand: 'Apple',
+      device_model: 'iPhone 11',
+      reported_defects: 'Touch issue near expiration',
+      priority: 'URGENT',
+      parent_ticket_id: parentGraceTicketId,
+      is_warranty_repair: 1
+    })
+  });
+  const graceReworkData = (await graceReworkRes.json()) as any;
+  assert(graceReworkRes.status === 201, 'Vector 5a: Intake accepted for ticket near warranty expiry');
+  const graceReworkTicketId = graceReworkData.ticket?.id || graceReworkData.id;
+
+  await deliverRepairTicket(graceReworkTicketId, { touch: true });
+  const graceReworkDb = db.prepare('SELECT warranty_duration_days, warranty_expiry_date FROM repair_tickets WHERE id = ?').get(graceReworkTicketId) as any;
+  assert(graceReworkDb.warranty_duration_days === 3, 'Vector 5b: Rework with < 3 days remaining extended with 3-day minimum testing grace per DEC-041');
+  const graceExpiry = new Date(graceReworkDb.warranty_expiry_date);
+  const graceDiffDays = Math.round((graceExpiry.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+  assert(graceDiffDays >= 3, 'Vector 5c: Expiry date pushed 3 days from delivery date');
+
+  // Vector 6: Expired warranty intake rejected with HTTP 400 (FR-007.4)
+  const maxTktObj2 = db.prepare('SELECT COALESCE(MAX(ticket_number), 1000) as m FROM repair_tickets').get() as any;
+  const nextTkt2 = maxTktObj2.m + 1000;
+  const expiredParentTicketId = 'tkt-expired-parent-' + uuidv4().slice(0, 6);
+  const expiredDate = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString();
+  db.prepare(`
+    INSERT INTO repair_tickets (id, ticket_number, store_id, customer_id, device_brand, device_model, reported_defects, release_otp, status, warranty_duration_days, warranty_expiry_date)
+    VALUES (?, ?, ?, ?, 'Xiaomi', 'Redmi Note 11', 'Battery Repair', '5678', 'DELIVERED', 60, ?)
+  `).run(expiredParentTicketId, nextTkt2, defaultStoreObj.id, defaultCustomerObj.id, expiredDate);
+
+  const expiredIntakeRes = await fetch(`${baseUrl}/api/repair/tickets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_name: 'Late Customer',
+      customer_phone: '01077776666',
+      device_brand: 'Xiaomi',
+      device_model: 'Redmi Note 11',
+      reported_defects: 'Attempting warranty return after expiration',
+      parent_ticket_id: expiredParentTicketId,
+      is_warranty_repair: 1
+    })
+  });
+  const expiredData = (await expiredIntakeRes.json()) as any;
+  assert(expiredIntakeRes.status === 400, 'Vector 6a: Expired warranty intake strictly rejected with HTTP 400');
+  assert(expiredData.code === 'WARRANTY_EXPIRED', 'Vector 6b: Returned error code WARRANTY_EXPIRED per FR-007.4');
+
   // Close ephemeral test server
   testServer.close();
 }
@@ -2099,10 +2312,23 @@ async function runExtendedSuites() {
 async function runBackupTest() {
   await runExtendedSuites();
 
+  // =========================================================================
+  // TEST 76: Test-Run Backup Isolation & Catalogue Hygiene (NFR-004)
+  // =========================================================================
+  console.log('\n[Test Suite 76: Test-Run Backup Isolation & Catalogue Hygiene (NFR-004)]');
+  assert(process.env.NODE_ENV === 'test', 'Vector 1a: Test process runs with NODE_ENV === test');
+  assert(getBackupDir() === TEST_SCRATCH_DIR, 'Vector 1b: Active backup directory redirects to test_scratch');
+
   const backup = await createDatabaseBackup('TestRunner');
-  assert(backup.sizeBytes > 0, `SQLite online backup created (${backup.sizeBytes} bytes): ${backup.filename}`);
-  const backups = listBackups();
-  assert(backups.length > 0, `Backup catalogue lists ${backups.length} valid backups`);
+  assert(backup.sizeBytes > 0, `Vector 2a: SQLite online backup created (${backup.sizeBytes} bytes): ${backup.filename}`);
+  assert(backup.path.includes('test_scratch'), 'Vector 2b: Backup written to isolated test_scratch directory');
+  assert(fs.existsSync(backup.path), 'Vector 2c: Backup file physically exists in test_scratch');
+
+  const prodBackups = listProductionBackups();
+  assert(prodBackups.length === 0, 'Vector 3: Production backup catalogue remains unpolluted (0 backups in production catalogue)');
+
+  cleanTestBackups();
+  assert(!fs.existsSync(TEST_SCRATCH_DIR), 'Vector 4: Ephemeral test_scratch directory successfully cleaned up');
 
   console.log(`\n==============================================`);
   console.log(`🏁 AUTOMATED TEST RESULTS: ${passed} PASSED, ${failed} FAILED`);

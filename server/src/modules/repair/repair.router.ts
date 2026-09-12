@@ -17,7 +17,8 @@ import {
   ensureDefaultTemplates,
   reservePartsForTicket,
   reconcileDeliveredPartsForTicket,
-  releaseReservedPartsForTicket
+  releaseReservedPartsForTicket,
+  calculateWarrantyForTicket
 } from './repair.service';
 
 export const repairRouter = Router();
@@ -92,8 +93,31 @@ repairRouter.post('/tickets', (req: Request, res: Response) => {
     customer_id, customer_name, customer_phone,
     assigned_tech_id, device_brand, device_model, imei_sn,
     passcode, pattern_code, physical_condition, checklist_json,
-    reported_defects, intake_media_url, priority, estimated_cost, labor_charge
+    reported_defects, intake_media_url, priority, estimated_cost, labor_charge,
+    parent_ticket_id, is_warranty_repair
   } = req.body;
+
+  let isWarranty = is_warranty_repair ? 1 : 0;
+  if (parent_ticket_id) {
+    const parentTicket = db.prepare('SELECT * FROM repair_tickets WHERE id = ?').get(parent_ticket_id) as any;
+    if (!parentTicket) {
+      return res.status(404).json({ error: 'Parent repair ticket not found', code: 'PARENT_TICKET_NOT_FOUND' });
+    }
+    isWarranty = 1;
+
+    // Enforce warranty expiry rejection including 3-day grace (DEC-041, FR-007.4)
+    if (parentTicket.warranty_expiry_date) {
+      const parentExpiryMs = new Date(parentTicket.warranty_expiry_date).getTime();
+      const graceMs = 3 * 24 * 60 * 60 * 1000;
+      if (Date.now() > parentExpiryMs + graceMs) {
+        return res.status(400).json({
+          error: 'WARRANTY_EXPIRED',
+          message: 'Original warranty certificate and 3-day grace period have expired',
+          code: 'WARRANTY_EXPIRED'
+        });
+      }
+    }
+  }
 
   const store = db.prepare('SELECT * FROM stores LIMIT 1').get() as any;
 
@@ -131,14 +155,15 @@ repairRouter.post('/tickets', (req: Request, res: Response) => {
       device_brand, device_model, imei_sn, passcode, pattern_code,
       physical_condition, checklist_json, reported_defects, intake_media_url,
       status, priority, estimated_cost, labor_charge, parts_cost, tech_commission,
-      sla_deadline, release_otp, sla_started_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'INTAKE', ?, ?, ?, 0.0, 0.0, ?, ?, CURRENT_TIMESTAMP)
+      sla_deadline, release_otp, sla_started_at, parent_ticket_id, is_warranty_repair
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'INTAKE', ?, ?, ?, 0.0, 0.0, ?, ?, CURRENT_TIMESTAMP, ?, ?)
   `).run(
     id, ticketNumber, store.id, custId, assigned_tech_id || null,
     device_brand, device_model, imei_sn || '', passcode || '', pattern_code || '',
     physical_condition || '', typeof checklist_json === 'object' ? JSON.stringify(checklist_json) : checklist_json || '{}',
     reported_defects, intake_media_url || '', priority || 'NORMAL',
-    estimated_cost || 0.0, labor_charge || 0.0, slaDeadline, releaseOtp
+    estimated_cost || 0.0, labor_charge || 0.0, slaDeadline, releaseOtp,
+    parent_ticket_id || null, isWarranty
   );
 
   const created = db.prepare(`
@@ -240,6 +265,15 @@ repairRouter.patch(['/tickets/:id/status', '/:id/status'], (req: Request, res: R
     reconcileDeliveredPartsForTicket(ticket.id);
     WhatsAppService.scheduleGoogleReviewPrompt(store.id, ticket.customer_phone, ticket.customer_name, store.google_maps_url);
     db.prepare('UPDATE customers SET total_spent = total_spent + ? WHERE id = ?').run(ticket.estimated_cost, ticket.customer_id);
+
+    // Calculate warranty duration and expiry date (DEC-041 / DEC-032 / FR-007)
+    const warranty = calculateWarrantyForTicket(ticket.id, new Date(now));
+    db.prepare(`
+      UPDATE repair_tickets
+      SET warranty_duration_days = ?,
+          warranty_expiry_date = ?
+      WHERE id = ?
+    `).run(warranty.durationDays, warranty.expiryDate, ticket.id);
   } else if (upperStatus === 'CANCELLED') {
     releaseReservedPartsForTicket(ticket.id);
   }
@@ -803,21 +837,33 @@ repairRouter.post('/tickets/:id/warranty-cert', (req: Request, res: Response) =>
   const certNumber = maxCert.maxNum + 1;
   const id = `wc-${uuidv4().substring(0, 8)}`;
 
+  // Calculate dynamic warranty terms per DEC-041 / DEC-032
+  const warranty = calculateWarrantyForTicket(ticket.id, new Date());
   const startDate = new Date();
-  const endDate = new Date(startDate.getTime() + 30 * 24 * 60 * 60 * 1000); // 30-day warranty
+  const endDate = new Date(warranty.expiryDate);
 
-  const terms = `30-Day Limited Repair Warranty on replaced parts and labor. Warranty void if liquid damage, accidental drops, or unauthorized opening detected.`;
+  const terms = `${warranty.durationDays}-Day Limited Repair Warranty on replaced parts (${warranty.category}) and labor. Warranty void if liquid damage, accidental drops, or unauthorized opening detected.`;
 
   db.prepare(`
     INSERT INTO warranty_certificates (
       id, cert_number, ticket_id, customer_name, customer_phone,
-      device_model, imei_sn, warranty_terms, start_date, end_date, status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
+      device_model, imei_sn, warranty_terms, start_date, end_date, status,
+      warranty_days, warranty_type
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)
   `).run(
     id, certNumber, ticket.id, ticket.customer_name, ticket.customer_phone,
     `${ticket.device_brand} ${ticket.device_model}`, ticket.imei_sn || 'N/A',
-    terms, startDate.toISOString(), endDate.toISOString()
+    terms, startDate.toISOString(), endDate.toISOString(),
+    warranty.durationDays, warranty.category
   );
+
+  // Also sync ticket columns
+  db.prepare(`
+    UPDATE repair_tickets
+    SET warranty_duration_days = ?,
+        warranty_expiry_date = ?
+    WHERE id = ?
+  `).run(warranty.durationDays, warranty.expiryDate, ticket.id);
 
   const created = db.prepare('SELECT * FROM warranty_certificates WHERE id = ?').get(id);
   res.status(201).json(created);
