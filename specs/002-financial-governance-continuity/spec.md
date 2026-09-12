@@ -28,14 +28,15 @@ Closing these gaps protects shop financial liability, ensures business continuit
 ### In-Scope (Strictly Bounded to Ratified As-Decided Invariants)
 1. **PO Approval Ceiling (`DEC-034`):**
    - Purchase orders exceeding 10,000 EGP (1,000,000 piastres) default to `PENDING_APPROVAL`.
-   - Dedicated approval endpoint (`POST /api/inventory/purchase-orders/:id/approve`) restricted to `MANAGER` and `ADMIN`.
-   - Warehouse receipt (`RECEIVED`) strictly blocked if PO is in `PENDING_APPROVAL`.
+   - Dedicated approval endpoint (`POST /api/spare-parts/purchase-orders/:id/approve`) restricted to `MANAGER` and `ADMIN`.
+   - Warehouse receipt (`POST /api/spare-parts/purchase-orders/:id/receive`) strictly blocked if PO is in `PENDING_APPROVAL`.
 2. **Shift-Close Backup Trigger (`DEC-002`, `RISK-008` Retirement):**
-   - Wire non-blocking online backup snapshot directly into shift handover closure (`/shifts/close`).
+   - In `POST /api/core/shifts/close`, directly `await backupService.createBackup()` prior to returning the HTTP 200 response, adhering verbatim to ADR-002 (sub-second online backup snapshot completion precedes the close response, guaranteeing survival across sudden power cuts per DEC-027).
    - Emit synchronous `audit_log` event with backup filename and byte size.
 3. **Stocktake Active Count POS Defense (`DEC-030`):**
-   - POS cart validation evaluates whether any line item is marked as frozen in active stocktake session.
-   - Rejects with `HTTP 409 Conflict` (`ITEM_FROZEN_IN_STOCKTAKE`) unless valid Manager Override OTP is provided.
+   - POS cart validation at `POST /api/retail/sales` evaluates whether any line item is marked as frozen in an active stocktake session.
+   - Rejects with `HTTP 409 Conflict` (`ITEM_FROZEN_IN_STOCKTAKE`) unless a valid single-use Manager Override OTP is provided.
+   - Reuses the canonical `manager_override_tokens` engine (`SalesRepository.validateAndConsumeOverrideToken`) rather than establishing a parallel mechanism.
 
 ### Explicitly Out-of-Scope
 - Audit table structural unification (`audit_log` vs `audit_logs`) — deferred to maintenance cleanup.
@@ -47,28 +48,28 @@ Closing these gaps protects shop financial liability, ensures business continuit
 ## 3. Functional Requirements (The "WHAT")
 
 ### FR-004: Purchase Order Approval Ceiling & Dual-State Workflow (DEC-034)
-- **FR-004.1:** When a purchase order is created via `POST /api/inventory/purchase-orders`, the backend must evaluate `total_amount`.
+- **FR-004.1:** When a purchase order is created via `POST /api/spare-parts/purchase-orders`, the backend must evaluate `total_amount`.
 - **FR-004.2:** If `total_amount > 1000000` (10,000 EGP in piastres, or 10,000 EGP nominal if stored in EGP), the initial status MUST be set to `PENDING_APPROVAL`. If `<= 10000 EGP`, status may initialize to `ORDERED`.
-- **FR-004.3:** Add endpoint `POST /api/inventory/purchase-orders/:id/approve`. Requires JWT role `MANAGER` or `ADMIN`. Upon approval, status transitions to `ORDERED`, records `approved_by` and `approved_at`, and emits synchronous audit log.
-- **FR-004.4:** Attempting to transition a PO in `PENDING_APPROVAL` to `RECEIVED` without prior approval MUST be rejected with `HTTP 403 Forbidden` (`PO_APPROVAL_REQUIRED`).
+- **FR-004.3:** Add endpoint `POST /api/spare-parts/purchase-orders/:id/approve`. Requires JWT role `MANAGER` or `ADMIN`. Upon approval, status transitions to `ORDERED`, records `approved_by` and `approved_at`, and emits synchronous audit log.
+- **FR-004.4:** Attempting to transition a PO in `PENDING_APPROVAL` to `RECEIVED` via `POST /api/spare-parts/purchase-orders/:id/receive` without prior approval MUST be rejected with `HTTP 403 Forbidden` (`PO_APPROVAL_REQUIRED`).
 
-### FR-005: Automated Shift-Close Non-Blocking Backup Trigger (DEC-002)
-- **FR-005.1:** Upon successful execution of `POST /api/core/shifts/:id/close` (or equivalent shift closing route), the server must immediately invoke `backupService.createBackup()`.
-- **FR-005.2:** Backup execution must be non-blocking (asynchronous via SQLite Online Backup API) so cashier handover response latency is not degraded.
+### FR-005: Automated Shift-Close Backup Snapshot (DEC-002 / ADR-002 Alignment)
+- **FR-005.1:** Inside `POST /api/core/shifts/close`, the server must directly `await backupService.createBackup()` before returning the success response.
+- **FR-005.2:** In accordance with ADR-002, backup completion strictly precedes the shift-close response (sub-second pause via SQLite Online Backup API) to guarantee that a physical backup snapshot exists on disk before shift turnover, surviving power loss with no UPS (DEC-027).
 - **FR-005.3:** A successful snapshot writes an audit log entry with action `SHIFT_CLOSE_BACKUP` and filename.
-- **FR-005.4:** Execution and verification retire `RISK-008` from `Mitigating` to `Mitigated`.
+- **FR-005.4:** Verifiable passing execution retires `RISK-008` from `Mitigating` to `Mitigated`.
 
 ### FR-006: Active Stocktake Cycle Count POS Defense (DEC-030)
 - **FR-006.1:** During POS retail checkout (`POST /api/retail/sales`), items present in the cart are checked against active stocktake sessions where `is_frozen = 1`.
 - **FR-006.2:** If a cart item is frozen, the server strictly returns `HTTP 409 Conflict` with error code `ITEM_FROZEN_IN_STOCKTAKE`.
-- **FR-006.3:** Cashier may bypass the freeze ONLY if a valid `manager_override_token` is supplied in the checkout payload (verified via `SalesRepository.validateAndConsumeOverrideToken`), emitting an audit log entry.
+- **FR-006.3:** Cashier may bypass the freeze ONLY if a valid `manager_override_token` is supplied in the checkout payload, verified and consumed via the existing canonical `SalesRepository.validateAndConsumeOverrideToken`, emitting an audit log entry.
 
 ---
 
 ## 4. Non-Functional Requirements (NFRs)
 
 - **NFR-004 (Financial Precision):** All monetary thresholds and PO comparisons must operate with zero floating-point drift, respecting Constitution §1 Principle II.
-- **NFR-005 (Response Latency):** Shift-close backup snapshot must complete in background or < 150ms on SSD so cashier is not delayed.
+- **NFR-005 (Durability Precedence):** Shift-close backup snapshot must complete prior to response dispatch, taking advantage of the sub-second SQLite Online Backup API without thread starvation per ADR-002.
 - **NFR-006 (Role-Based Access):** Only `SuperAdmin`, `Admin`, or `Manager` can approve high-value POs or generate override tokens; cashiers and technicians are rejected with `HTTP 403 Forbidden`.
 
 ---
