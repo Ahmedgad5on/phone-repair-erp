@@ -16,7 +16,7 @@
 | Artifact | Canonical Path | Version / Scope | Status | Ratification Date |
 | :--- | :--- | :--- | :--- | :--- |
 | **Constitution** | `.specify/memory/constitution.md` | v1.0.1 (incorporating DEC-041 warranty governance) | Ratified Supreme Law | 2026-09-12 |
-| **Decisions Register** | `.specify/memory/decisions.md` | 43 Decisions (`DEC-001`..`043`), 40 ADRs (`ADR-001`..`040`) | 42 CLOSED in Phase 2, DEC-043 Ratified in Phase 3 | 2026-09-12 |
+| **Decisions Register** | `.specify/memory/decisions.md` | 44 Decisions (`DEC-001`..`044`), 42 ADRs (`ADR-001`..`042`) | 42 CLOSED in Phase 2, DEC-043/044 Ratified in Phase 3 | 2026-09-12 |
 | **Risk Register** | `.specify/memory/risks.md` | 11 Tracked Risks (`RISK-001`..`011`: 1 Open, 6 Mitigating, 4 Mitigated [`RISK-007`, `RISK-008`, `RISK-010`, `RISK-011`]) | Active Living Document | 2026-09-12 |
 | **Domain Glossary** | `.specify/memory/glossary.md` | v1.0.0 (12 Ratified Domain Terms + Invalid Usages) | Ratified Living Document | 2026-09-12 |
 | **Repository README** | `README.md` | Architecture Blueprint, Setup, Baseline (159/66), Honest Gaps | Ratified Master Overview | 2026-09-12 |
@@ -97,6 +97,7 @@
 | **DEC-041** | Warranty Duration & Grace Policy | Durations are configurable per part category in settings (defaults: 90 days screens, 60 days batteries, 30 days other repairs/labor). Replaced parts inherit original window; minimum 3-day testing grace applies if remaining window < 3 days. | Owner Decision DEC-041 | 2026-09-12 |
 | **DEC-042** | Warranty Voiding Evidence | Warranty voiding on grounds of physical damage or liquid ingress requires attached photographic evidence AND Manager approval with synchronous audit logging. | Owner Decision DEC-042 | 2026-09-12 |
 | **DEC-043** | LAN Perimeter & Seed Token | Authorizes `::1` / `::ffff:127.0.0.1` (IPv6 loopback) for Windows/Node24/Electron host; constrains LAN subnets strictly to `192.168.1.0/24` and `10.0.0.0/8` per ADR-020; mandates crypto-random seed value for `master-pos-station-token`. | `server/src/middleware/subnet-guard.ts#L4-L20`, `server/src/db/seed.ts#L18-L30` | 2026-09-12 |
+| **DEC-044** | Shift-Close Backup Blocking | Backup failure during shift close BLOCKS the close (HTTP 500) + SHIFT_CLOSE_BACKUP_FAILED audit event + red banner. Conservative-by-design: with no UPS (DEC-027), an unclosed shift beats an unprotected night. | Owner Ratification DEC-044 | 2026-09-12 |
 
 ---
 

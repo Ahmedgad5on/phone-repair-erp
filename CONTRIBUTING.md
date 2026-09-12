@@ -108,13 +108,14 @@ Every review checkpoint must present this exact markdown structure:
   - `[DELETE]` `path/to/obsolete-file.ts`
 - **Touched Governance & Risks:**
   - Linked Decisions: `DEC-NNN` / `ADR-NNN`
-  - Linked Risks: `RISK-NNN` (Current status: `Mitigating` / `Mitigated`)
+  - Linked Risks: `RISK-NNN` (Current status: `Mitigating` / `Mitigated`) *(Rule: Any live governance bypass discovered in Delta/implementation must be linked to a RISK entry)*
 
 - **Contract & Boundary Invariants:**
   - [ ] Universal integer-piastre compliance verified (Zero floating-point money calculations)
   - [ ] HTTP status code taxonomy strictly aligned (400 Client Bad Request vs 403 Forbidden vs 409 Conflict vs 422 Unprocessable Entity)
   - [ ] Subnet LAN-only isolation respected (DEC-020, zero external cloud dependencies)
   - [ ] Forensic audit log entries emitted synchronously with mandatory justification for sensitive mutations
+  - [ ] All routes performing this operation share the guard (search router files for duplicate operations)
 
 - **Adversarial Findings (Hostile Reviewer Audit Trail):**
   - **Vector 1:** [Specific attack, bypass, or boundary violation attempted by hostile reviewer persona]

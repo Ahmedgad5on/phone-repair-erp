@@ -4,7 +4,7 @@
 **Location:** `.specify/memory/decisions.md`  
 **Governing Standard:** SpecKit Foundation Phase 2  
 **Status:** Ratified (ADR-001 through ADR-040 Ported & Verified)  
-**Total Ratified Decisions:** 42 (DEC-001 through DEC-042 | 40 ADRs)
+**Total Ratified Decisions:** 44 (DEC-001 through DEC-044 | 42 ADRs)
 
 ---
 
@@ -1143,4 +1143,38 @@ Ensures confidential, automated technician commission calculations directly tied
 - **Positive:** Automated, transparent commission payouts; confidential employee compensation; full auditability.
 - **Negative:** Technicians cannot view detailed payroll rosters directly on the terminal.
 - **Mitigations:** Technicians view their own individual commission totals on their personal technician dashboard.
+
+---
+
+## DEC-043: LAN Perimeter IPv6 Loopback Authorization & Workstation Crypto Seed Token
+
+- **Status:** Ratified (Feature 001 Hardening)
+- **Deciders:** System Architecture / Owner Ratification
+- **Date:** 2026-09-12
+- **Technical Scope:** `server/src/middleware/subnet-guard.ts#L4-L20`, `server/src/db/seed.ts#L18-L30`
+
+### Context
+On Windows installations with Node 24 and Electron desktop host, localhost connections may resolve over IPv6 loopback (`::1` or `::ffff:127.0.0.1`). Furthermore, seeding hardcoded or predictable workstation tokens creates an immediate perimeter security bypass.
+
+### Decision
+1. Explicitly authorize `::1` and `::ffff:127.0.0.1` as loopback addresses in `subnetAndDeviceGuard`.
+2. Constrain permitted LAN subnets strictly to `192.168.1.0/24` and `10.0.0.0/8` per ADR-020.
+3. Enforce crypto-random 64-character token generation during database seeding for `master-pos-station-token` (never hardcoded values).
+
+---
+
+## DEC-044: Shift-Close Database Backup Failure Blocking & Loud Failure Alerting
+
+- **Status:** Ratified (Feature 002 Hardening / DEC-044)
+- **Deciders:** System Architecture / Owner Ratification
+- **Date:** 2026-09-12
+- **Technical Scope:** `server/src/modules/core/core.router.ts#L287-L315`
+
+### Context
+Closing a shift reconciles the cash drawer and marks the handover point between employees. Under ADR-002, closing the shift must trigger a database backup snapshot. If the backup fails due to disk full or permissions, swallowing the error and allowing the shift to close creates false security: staff leaves thinking the shift is backed up, but without a hardware UPS (DEC-027), a power cut overnight leaves unreconciled transactions vulnerable.
+
+### Decision
+1. A failure during automated shift-close backup snapshot creation strictly BLOCKS the shift handover, returning `HTTP 500 Internal Server Error` with error code `BACKUP_FAILED`.
+2. A synchronous high-severity audit log event `SHIFT_CLOSE_BACKUP_FAILED` is recorded with the error message and actor ID.
+3. Persistent red visual alert is triggered per DEC-015 and Constitution §3.1 / §4.3. Conservative-by-design: with no UPS, an unclosed shift beats an unprotected night.
 
