@@ -370,6 +370,24 @@ procurementRouter.post('/rtv/:id/reject', requireAuth, requireRole(['Manager', '
     return res.status(422).json({ error: 'Rejection reason is required (min 3 characters)' });
   }
 
+  // FR-010.4 / DEC-035: Reject scrap transition if item is currently reserved by active repair tickets
+  const reservedPart = db.prepare(
+    `SELECT rcp.ticket_id, rt.ticket_number
+     FROM repair_consumed_parts rcp
+     JOIN repair_tickets rt ON rt.id = rcp.ticket_id
+     WHERE rcp.item_id = ? AND rcp.is_reserved = 1 AND rt.status NOT IN ('DELIVERED', 'CANCELLED')
+     LIMIT 1`
+  ).get(rtv.item_id) as any;
+
+  if (rtv.reserved_quantity > 0 || reservedPart) {
+    return res.status(409).json({
+      error: 'Cannot transition item to DEFECTIVE_SCRAP while reserved by active repair tickets',
+      code: 'UNTIL_REPAIRS_SETTLE',
+      reserved_quantity: rtv.reserved_quantity,
+      ticket_id: reservedPart?.ticket_id,
+    });
+  }
+
   db.transaction(() => {
     // Mark supplier return as rejected
     db.prepare(
@@ -381,18 +399,6 @@ procurementRouter.post('/rtv/:id/reject', requireAuth, requireRole(['Manager', '
       `UPDATE items SET item_status = 'DEFECTIVE_SCRAP', stock_quantity = 0 WHERE id = ?`
     ).run(rtv.item_id);
 
-    // Release any reservations on the defective item
-    if (rtv.reserved_quantity > 0) {
-      db.prepare(
-        `UPDATE items SET reserved_quantity = 0 WHERE id = ?`
-      ).run(rtv.item_id);
-
-      // Release reservations on affected repair tickets
-      db.prepare(
-        `UPDATE repair_tickets SET reserved_stock = 0 WHERE reserved_item_id = ? AND status IN ('PENDING', 'DIAGNOSED', 'IN_PROGRESS')`
-      ).run(rtv.item_id);
-    }
-
     logAudit({
       userId,
       action: 'RTV_REJECTED',
@@ -403,7 +409,6 @@ procurementRouter.post('/rtv/:id/reject', requireAuth, requireRole(['Manager', '
         item_id: rtv.item_id,
         item_status: 'DEFECTIVE_SCRAP',
         reason: reason.trim(),
-        reservations_released: rtv.reserved_quantity > 0,
       },
     });
   })();
@@ -412,6 +417,6 @@ procurementRouter.post('/rtv/:id/reject', requireAuth, requireRole(['Manager', '
     success: true,
     message: `Return rejected. Item marked as DEFECTIVE_SCRAP.`,
     item_id: rtv.item_id,
-    reservations_released: rtv.reserved_quantity > 0,
   });
 });
+

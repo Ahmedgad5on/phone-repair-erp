@@ -2701,6 +2701,73 @@ async function runExtendedSuites() {
   });
   assert(reLiqRes.status === 422, `Vector j: Re-liquidation of LIQUIDATED item → 422 (actual: ${reLiqRes.status})`);
 
+  // Vector k (FR-010.4 / Vector e): Scrap transition blocked while item reserved by repair ticket (409 UNTIL_REPAIRS_SETTLE)
+  const reservedTestItem = db.prepare(
+    "SELECT * FROM items WHERE deleted_at IS NULL AND stock_quantity > 0 AND (item_status IS NULL OR item_status = 'ACTIVE') AND id != ? LIMIT 1"
+  ).get(scrapItem.id) as any;
+  assert(reservedTestItem !== undefined, 'Vector k1: Reserved test fixture item available');
+
+  // Create an active repair ticket reserving this item
+  const scrapCust = db.prepare("SELECT id FROM customers LIMIT 1").get() as any;
+  assert(scrapCust !== undefined, 'Vector k0: Customer fixture available');
+  const resTicketId = `ticket-res-${uuidv4().substring(0, 8)}`;
+  db.prepare(
+    `INSERT INTO repair_tickets (
+      id, store_id, ticket_number, customer_id, device_brand, device_model, reported_defects,
+      status, priority, estimated_cost, release_otp
+    ) VALUES (?, ?, ?, ?, 'Apple', 'iPhone 13', 'Screen issue',
+      'IN_REPAIR', 'NORMAL', 1500, '9999')`
+  ).run(resTicketId, defaultStore.id, `TICK-RES-${Date.now().toString().slice(-4)}`, scrapCust.id);
+
+  // Insert reserved consumed part in repair_consumed_parts
+  const rcpResId = `rcp-res-${uuidv4().substring(0, 8)}`;
+  db.prepare(
+    `INSERT INTO repair_consumed_parts (id, ticket_id, item_id, part_name, cost_price, selling_price, is_reserved)
+     VALUES (?, ?, ?, 'Reserved Part', 500, 1000, 1)`
+  ).run(rcpResId, resTicketId, reservedTestItem.id);
+
+  // Mark reserved_quantity on item
+  db.prepare("UPDATE items SET reserved_quantity = 1 WHERE id = ?").run(reservedTestItem.id);
+
+  // Create a pending supplier return for this reserved item
+  const reservedRtvId = `rtv-res-${uuidv4().substring(0, 8)}`;
+  db.prepare(
+    `INSERT INTO supplier_returns (id, store_id, item_id, supplier_name, reason, status)
+     VALUES (?, ?, ?, 'Reserved Supplier', 'Part defective in repair testing', 'PENDING')`
+  ).run(reservedRtvId, defaultStore.id, reservedTestItem.id);
+
+  // Attempt RTV reject while item is reserved → strictly rejected with HTTP 409 UNTIL_REPAIRS_SETTLE
+  const reservedRejectRes = await fetch(`${baseUrl}/api/procurement/rtv/${reservedRtvId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${admScrapToken}` },
+    body: JSON.stringify({ reason: 'Vendor rejects return for reserved part' })
+  });
+  const reservedRejectData = (await reservedRejectRes.json()) as any;
+  assert(reservedRejectRes.status === 409, `Vector k2: Reserved item RTV reject blocked with 409 (actual: ${reservedRejectRes.status})`);
+  assert(reservedRejectData.code === 'UNTIL_REPAIRS_SETTLE', `Vector k3: Error code = UNTIL_REPAIRS_SETTLE (actual: ${reservedRejectData.code})`);
+
+  // Verify item status remains unchanged (NOT DEFECTIVE_SCRAP)
+  const itemAfterBlocked = db.prepare("SELECT * FROM items WHERE id = ?").get(reservedTestItem.id) as any;
+  assert(itemAfterBlocked.item_status !== 'DEFECTIVE_SCRAP', `Vector k4: Item NOT transitioned to DEFECTIVE_SCRAP while reserved (actual: ${itemAfterBlocked.item_status})`);
+
+  // Settle repairs: unreserve part in repair_consumed_parts, cancel ticket, clear items.reserved_quantity
+  db.prepare("UPDATE repair_consumed_parts SET is_reserved = 3 WHERE id = ?").run(rcpResId);
+  db.prepare("UPDATE repair_tickets SET status = 'CANCELLED' WHERE id = ?").run(resTicketId);
+  db.prepare("UPDATE items SET reserved_quantity = 0 WHERE id = ?").run(reservedTestItem.id);
+
+  // Retry RTV reject after repair settlement → succeeds with HTTP 200
+  const settledRejectRes = await fetch(`${baseUrl}/api/procurement/rtv/${reservedRtvId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${admScrapToken}` },
+    body: JSON.stringify({ reason: 'Vendor rejects return after repairs settled' })
+  });
+  const settledRejectData = (await settledRejectRes.json()) as any;
+  assert(settledRejectRes.status === 200, `Vector k5: RTV reject succeeds after repair settlement (actual: ${settledRejectRes.status})`);
+  assert(settledRejectData.success === true, 'Vector k6: Response indicates success after settlement');
+
+  const settledItem = db.prepare("SELECT * FROM items WHERE id = ?").get(reservedTestItem.id) as any;
+  assert(settledItem.item_status === 'DEFECTIVE_SCRAP', `Vector k7: Item is now DEFECTIVE_SCRAP after settlement (actual: ${settledItem.item_status})`);
+
   console.log('[Suite 75 Complete: RTV Rejection + DEFECTIVE_SCRAP + Liquidation]');
 
   // Close ephemeral test server

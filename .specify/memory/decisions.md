@@ -4,7 +4,7 @@
 **Location:** `.specify/memory/decisions.md`  
 **Governing Standard:** SpecKit Foundation Phase 2  
 **Status:** Ratified (ADR-001 through ADR-040 Ported & Verified)  
-**Total Ratified Decisions:** 44 (DEC-001 through DEC-044 | 42 ADRs)
+**Total Ratified Decisions:** 46 (DEC-001 through DEC-046 | 42 ADRs)
 
 ---
 
@@ -1177,4 +1177,62 @@ Closing a shift reconciles the cash drawer and marks the handover point between 
 1. A failure during automated shift-close backup snapshot creation strictly BLOCKS the shift handover, returning `HTTP 500 Internal Server Error` with error code `BACKUP_FAILED`.
 2. A synchronous high-severity audit log event `SHIFT_CLOSE_BACKUP_FAILED` is recorded with the error message and actor ID.
 3. Persistent red visual alert is triggered per DEC-015 and Constitution §3.1 / §4.3. Conservative-by-design: with no UPS, an unclosed shift beats an unprotected night.
+
+---
+
+## DEC-041: Warranty Duration Matrix, Start at DELIVERED & 3-Day Grace Policy
+
+- **Status:** Implemented & Ratified (Feature 003 / TASK-3.2 / Test Suite 72)
+- **Deciders:** System Architecture / Owner Ratification
+- **Date:** 2026-09-12
+- **Technical Scope:** `server/src/modules/repair/repair.service.ts`
+
+### Decision
+1. Warranty duration is dynamically determined by primary part category with strict defaults: Screens/Displays: 90 days; Batteries: 60 days; Motherboard/Labor/Other: 30 days.
+2. Warranty coverage start date is strictly tied to device handover (`DELIVERED` status), never intake or diagnosis.
+3. Rework tickets inherit the parent ticket's remaining duration without resetting to full duration. If remaining window upon delivery is < 3 days, a 3-day testing grace period applies.
+
+---
+
+## DEC-042: Mandatory Manager Approval & Forensic Photo Evidence for Warranty Voiding
+
+- **Status:** Implemented & Ratified (Feature 003 / TASK-3.3 / Test Suite 73)
+- **Deciders:** System Architecture / Owner Ratification
+- **Date:** 2026-09-12
+- **Technical Scope:** `server/src/modules/repair/repair.router.ts`, `server/uploads/warranty-evidence/`
+
+### Decision
+1. Voiding customer repair warranty requires mandatory JWT role `MANAGER` or `ADMIN`. Technicians are blocked with `HTTP 403 Forbidden`.
+2. Mandatory photographic proof required (JPEG/PNG, <= 5MB). Missing/invalid evidence returns `HTTP 400 Bad Request`.
+3. Files stored in isolated filesystem directory `server/uploads/warranty-evidence/`; SHA-256 integrity hash recorded in SQLite `repair_tickets` table to keep SQLite WAL light and fast.
+4. Synchronous audit log emitted with `WARRANTY_VOIDED` action and real manager actor ID.
+
+---
+
+## DEC-045: External USB Backup Mirroring for Warranty Forensic Evidence
+
+- **Status:** Implemented & Ratified (Feature 003 / TASK-3.1 / Test Suite 76)
+- **Deciders:** System Architecture / Owner Ratification
+- **Date:** 2026-09-12
+- **Technical Scope:** `server/src/services/backup.service.ts`
+
+### Decision
+1. The `server/uploads/` directory joins automated external USB mirroring (`USB_BACKUP_PATH/uploads`) during backup operations so warranty forensic evidence survives host drive failure.
+2. Test executions (`NODE_ENV=test`) redirect ephemeral test snapshots to `server/backups/test_scratch/` with automated pruning upon runner teardown, preserving clean production catalogue.
+
+---
+
+## DEC-046: DEFECTIVE_SCRAP Lifecycle, POS Blocking & Repair Reservation Defense
+
+- **Status:** Implemented & Ratified (Feature 003 / TASK-3.5 / Test Suite 75)
+- **Deciders:** System Architecture / Owner Ratification
+- **Date:** 2026-09-12
+- **Technical Scope:** `server/src/modules/procurement/procurement.router.ts`, `server/src/modules/inventory/inventory.router.ts`, `server/src/modules/retail/retail.router.ts`
+
+### Decision
+1. Rejection of supplier returns (`POST /api/procurement/rtv/:id/reject`) transitions item to `status = 'DEFECTIVE_SCRAP'` and zeroes available stock.
+2. If the item is currently reserved by one or more active repair tickets (`reserved_quantity > 0` or active reservation in `repair_consumed_parts`), scrap transition is strictly rejected with `HTTP 409 Conflict` (`UNTIL_REPAIRS_SETTLE`).
+3. POS retail checkout of `DEFECTIVE_SCRAP` items is strictly blocked with `HTTP 409 Conflict` (`ITEM_IS_DEFECTIVE_SCRAP`).
+4. Scrap liquidation (`POST /api/inventory/scrap/liquidate`) is strictly restricted to `MANAGER` role and synchronously audited with the real manager actor ID.
+
 

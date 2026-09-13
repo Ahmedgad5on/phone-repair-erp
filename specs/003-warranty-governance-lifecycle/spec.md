@@ -96,6 +96,7 @@ In the current codebase:
 - **FR-010.1:** In `POST /api/procurement/rtv/:id/reject`, rejected items are flagged with `status = 'DEFECTIVE_SCRAP'`.
 - **FR-010.2:** Items in `DEFECTIVE_SCRAP` are excluded from regular POS checkout (`HTTP 409 Conflict: ITEM_IS_DEFECTIVE_SCRAP`).
 - **FR-010.3:** Salvage sale or scrap liquidation requires Manager authorization (`POST /api/inventory/scrap/liquidate` with Manager JWT).
+- **FR-010.4 (Active Repair Reservation Defense):** If an item targeted for RTV rejection is currently reserved by one or more active repair tickets (`reserved_quantity > 0` or active reservation in `repair_tickets` where status ∈ `('PENDING', 'DIAGNOSED', 'IN_PROGRESS')`), the scrap transition must be rejected with `HTTP 409 Conflict` (`{ error: 'Cannot transition item to DEFECTIVE_SCRAP while reserved by active repair tickets', code: 'UNTIL_REPAIRS_SETTLE' }`). Active repairs must settle (reassign part or release reservation) before the item can be decommissioned as scrap.
 
 ---
 

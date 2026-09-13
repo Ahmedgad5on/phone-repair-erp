@@ -9,7 +9,7 @@
 ## 1. Current Phase & Sub-Step
 - **Phase:** Phase 3: Implementation & Specification Planning (Active)
 - **Status:** Phase 3: Implementation & Specification Planning (Active)
-- **Sub-Step:** Step 3.7 — Feature 003 (Warranty Governance & Defective Parts Lifecycle) Batch 3 EXECUTING. TASK-3.5 (RTV Rejection + DEFECTIVE_SCRAP + Liquidation) in progress.
+- **Sub-Step:** Step 3.8 — Feature 003 (Warranty Governance & Defective Parts Lifecycle) COMPLETE. All 5 tasks (TASK-3.1..3.5) delivered and verified (344 PASSED, 0 FAILED across 76 suites). Feature 003 Closure ready.
 - **Phase 2 Closure State:** 100% Complete & Signed Off (All 7 Foundation Artifacts Ratified by Owner)
 
 ### 1.1 Foundation Complete Declaration (Phase 2 Ratified Artifacts)
@@ -57,27 +57,36 @@
 > 6. **[Feature 003 Adversarial] Account existence check** — Journal entry creation assumes `acc-5040` and `acc-1040` exist (seeded by migration 014). No runtime validation of account existence before INSERT. Low risk; accounts are seeded at startup. (Adversarial Vector 6)
 > 7. **[Feature 003 Adversarial] Evidence file path in logAudit** — `newValues.evidencePath` logged in audit could leak server filesystem paths. Consider logging only the SHA-256 hash instead. Low risk; internal audit log only. (Adversarial Vector 7)
 
-### 1.4 Feature 003 Warranty Governance & Defective Parts Lifecycle
+### 1.4 Feature 003 Warranty Governance & Defective Parts Lifecycle Completion
 - **Feature:** `specs/003-warranty-governance-lifecycle` (Warranty Governance, Voiding Authorization & Defective Parts Lifecycle)
 - **Branch:** `feature/003-warranty-governance-lifecycle`
-- **Automated Tests Delivered:** +25 tests (Baseline elevated from 285 to 310 passing tests across 76 suites, 0 failures).
+- **Automated Tests Delivered:** +59 tests (Baseline elevated from 285 to 344 passing tests across 76 suites, 0 failures).
 - **Tasks Delivered:**
   1. `TASK-3.1`: Test-Run Backup Isolation (`NFR-004`, `DEC-045`, Test Suite 76).
   2. `TASK-3.2`: Warranty Duration Matrix & Window Inheritance (`DEC-041`, `DEC-032`, Test Suite 72).
   3. `TASK-3.3`: Void-Warranty RBAC & Photo Evidence (`DEC-033`, `DEC-042`, `FR-008`, Test Suite 73).
   4. `TASK-3.4`: Warranty Parts Expense Tracking (`DEC-031`, `FR-009`, Test Suite 74).
-- **Commits:** `21c24f1` (Batch 1), `b8d42b4` (W1-W7 mandates), `4163484` (FR-007/FR-008.3 rewrites), `f176498` (Batch 2 code), `e5f8917` (adversarial fixes), `75376b9` (Suite 74 rewrite + bugfixes)
-- **Decisions Ratified:**
-  1. `DEC-045`: Warranty evidence uploads directory included in USB disaster-recovery mirroring.
+  5. `TASK-3.5`: RTV Rejection, `DEFECTIVE_SCRAP` Lifecycle & Repair Reservation Defense (`DEC-035`, `DEC-046`, `FR-010`, Test Suite 75).
+- **Risks Retired to Mitigated:**
+  1. `RISK-004`: Unauthorized financial mutation, cashier discount manipulation, voided sale without audit justification, or un-audited scrap liquidation (evidenced by Test Suites 62, 71, 73, 74, 75).
+- **Decisions Ratified & Implemented:**
+  1. `DEC-031`: Warranty spare parts accounting posted to dedicated warranty expense `acc-5040`.
+  2. `DEC-032`: Replaced spare parts warranty window inheritance protocol.
+  3. `DEC-033`: Mandatory Manager/Admin RBAC and audit trail for repair warranty voiding.
+  4. `DEC-035`: Quarantined scrap workflow (`DEFECTIVE_SCRAP`) for rejected supplier returns.
+  5. `DEC-041`: Category-driven warranty durations (90d screens / 60d batteries / 30d others) starting strictly at DELIVERED with 3-day testing grace.
+  6. `DEC-042`: Mandatory photographic evidence with SHA-256 integrity hash for warranty voiding.
+  7. `DEC-045`: Warranty evidence uploads directory included in USB disaster-recovery mirroring.
+  8. `DEC-046`: DEFECTIVE_SCRAP lifecycle, POS blocking (`HTTP 409 ITEM_IS_DEFECTIVE_SCRAP`), repair reservation defense (`HTTP 409 UNTIL_REPAIRS_SETTLE`), and Manager-only scrap liquidation.
 - **Bug Fixes:**
   1. `.jpg` → `jpeg` MIME normalization in void-warranty handler (both base64 and file paths).
   2. `VOID_EVIDENCE_DIR` double `server/` prefix fixed.
   3. Parts cost query: `cp.cost_price` used directly (table has no `quantity` column).
   4. FK constraint on `journal_entries.created_by_user_id` — SuperAdmin fallback when no auth.
   5. `warranty_cost_amount` UPDATE separated from journal entry transaction (atomicity fix).
-- **Loop Incidents:** #1 (byte-identical re-submission), #2 (FR-007.4 loophole preserved).
-- **R4 Violation:** #1 (TASK-3.1+3.2 bundling misapplied atomic-chain exception).
-- **Status:** Batch 2 COMPLETE, awaiting Brief 2 Gate approval.
+  6. Repair reservation defense in RTV rejection route querying `repair_consumed_parts` and `items.reserved_quantity`.
+- **Status:** Feature 003 COMPLETE (344 PASSED, 0 FAILED). All batches delivered and verified. Ready for `--no-ff` merge to main.
+
 
 ### Standing Rules (Born from Feature 003 Cycle)
 
