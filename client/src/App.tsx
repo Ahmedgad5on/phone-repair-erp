@@ -170,7 +170,7 @@ const MainApp: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="h-screen w-screen bg-slate-950 flex flex-col items-center justify-center text-white space-y-4" dir={dir}>
+      <div className="h-screen w-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center text-slate-900 dark:text-white space-y-4 transition-colors" dir={dir}>
         <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
         <div className="text-sm font-semibold tracking-wide">{t.common.loading}</div>
       </div>

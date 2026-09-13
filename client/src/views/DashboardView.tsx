@@ -59,7 +59,7 @@ export const DashboardView: React.FC = () => {
   if (loading || !data) {
     return (
       <div className="p-8 flex items-center justify-center min-h-[400px]">
-        <div className="flex items-center gap-3 text-slate-400 animate-pulse">
+        <div className="flex items-center gap-3 text-slate-500 dark:text-slate-400 animate-pulse">
           <RefreshCw className="w-6 h-6 animate-spin" />
           <span>{isAr ? 'جاري تحميل مؤشرات الأداء...' : 'Loading KPIs...'}</span>
         </div>
@@ -72,17 +72,17 @@ export const DashboardView: React.FC = () => {
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black text-white tracking-tight">
+          <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
             {isAr ? 'لوحة القيادة والتحليلات الحية' : 'Executive Operations Dashboard'}
           </h1>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
             {isAr ? 'مؤشرات الأداء اللحظية، سلامة البيانات وسجل تدقيق العمليات' : 'Live KPIs, database integrity & operation audit log'}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={loadData}
-            className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl border border-slate-700 transition-colors"
+            className="p-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl border border-slate-200 dark:border-slate-700 transition-colors"
             title={isAr ? 'تحديث البيانات' : 'Refresh Data'}
           >
             <RefreshCw className="w-4 h-4" />
@@ -103,13 +103,13 @@ export const DashboardView: React.FC = () => {
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Today's Sales */}
-        <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-900/90 border border-slate-800 shadow-xl relative overflow-hidden group">
+        <div className="p-5 rounded-2xl bg-white dark:bg-gradient-to-br dark:from-slate-900 dark:to-slate-900/90 border border-slate-200 dark:border-slate-800 shadow-xl relative overflow-hidden group">
           <div className="flex justify-between items-start">
             <div>
-              <span className="text-xs font-semibold text-slate-400 block mb-1">
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 block mb-1">
                 {isAr ? 'مبيعات اليوم' : "Today's Revenue"}
               </span>
-              <h2 className="text-2xl font-black text-white font-mono">
+              <h2 className="text-2xl font-black text-slate-900 dark:text-white font-mono">
                 {data.todaySales.revenue.toLocaleString()} <span className="text-xs font-normal text-emerald-400">EGP</span>
               </h2>
               <span className="text-[11px] text-slate-500 mt-1 block">
@@ -123,13 +123,13 @@ export const DashboardView: React.FC = () => {
         </div>
 
         {/* Repair Lab Workload */}
-        <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-900/90 border border-slate-800 shadow-xl relative overflow-hidden group">
+        <div className="p-5 rounded-2xl bg-white dark:bg-gradient-to-br dark:from-slate-900 dark:to-slate-900/90 border border-slate-200 dark:border-slate-800 shadow-xl relative overflow-hidden group">
           <div className="flex justify-between items-start">
             <div>
-              <span className="text-xs font-semibold text-slate-400 block mb-1">
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 block mb-1">
                 {isAr ? 'أجهزة في الصيانة' : 'Active Repairs'}
               </span>
-              <h2 className="text-2xl font-black text-white font-mono">
+              <h2 className="text-2xl font-black text-slate-900 dark:text-white font-mono">
                 {data.ticketsByStatus.reduce((acc: number, cur: any) => cur.status !== 'DELIVERED' ? acc + cur.count : acc, 0)}
               </h2>
               {data.slaBreaches > 0 ? (
@@ -150,14 +150,14 @@ export const DashboardView: React.FC = () => {
         </div>
 
         {/* Low Stock & Missing Demand */}
-        <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-900/90 border border-slate-800 shadow-xl relative overflow-hidden group">
+        <div className="p-5 rounded-2xl bg-white dark:bg-gradient-to-br dark:from-slate-900 dark:to-slate-900/90 border border-slate-200 dark:border-slate-800 shadow-xl relative overflow-hidden group">
           <div className="flex justify-between items-start">
             <div>
-              <span className="text-xs font-semibold text-slate-400 block mb-1">
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 block mb-1">
                 {isAr ? 'نواقص المخزن' : 'Stock Shortages'}
               </span>
               <h2 className="text-2xl font-black text-amber-400 font-mono">
-                {data.lowStockCount} <span className="text-xs text-slate-400">{isAr ? 'أصناف تحت الحد' : 'low stock'}</span>
+                {data.lowStockCount} <span className="text-xs text-slate-500 dark:text-slate-400">{isAr ? 'أصناف تحت الحد' : 'low stock'}</span>
               </h2>
               <span className="text-[11px] text-slate-500 mt-1 block">
                 {data.missingDemandCount} {isAr ? 'طلب بخزانة النواقص' : 'missing demand requests'}
@@ -170,13 +170,13 @@ export const DashboardView: React.FC = () => {
         </div>
 
         {/* E-Wallets Cash Liquidity */}
-        <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-900/90 border border-slate-800 shadow-xl relative overflow-hidden group">
+        <div className="p-5 rounded-2xl bg-white dark:bg-gradient-to-br dark:from-slate-900 dark:to-slate-900/90 border border-slate-200 dark:border-slate-800 shadow-xl relative overflow-hidden group">
           <div className="flex justify-between items-start">
             <div>
-              <span className="text-xs font-semibold text-slate-400 block mb-1">
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 block mb-1">
                 {isAr ? 'سيولة المحافظ الإلكترونية' : 'E-Wallets Float'}
               </span>
-              <h2 className="text-2xl font-black text-white font-mono">
+              <h2 className="text-2xl font-black text-slate-900 dark:text-white font-mono">
                 {data.walletsSummary.total_balance.toLocaleString()} <span className="text-xs font-normal text-sky-400">EGP</span>
               </h2>
               {data.walletsSummary.locked_count > 0 ? (
@@ -199,12 +199,12 @@ export const DashboardView: React.FC = () => {
       {/* Two Columns: Data Export / Backups & Live Audit Log */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column: Data Export & System Security */}
-        <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
-          <h3 className="text-sm font-bold text-white flex items-center gap-2">
+        <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4 transition-colors">
+          <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <Download className="w-4 h-4 text-indigo-400" />
             {isAr ? 'تصدير التقارير (Excel / CSV)' : 'Data Export (CSV / Excel)'}
           </h3>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
             {isAr ? 'تصدير فوري لكامل الجداول مع حماية الخصوصية وتوافق مع أنظمة المحاسبة' : 'Export full tabular ledgers for external accounting.'}
           </p>
 
@@ -212,47 +212,47 @@ export const DashboardView: React.FC = () => {
             <a
               href={api.getExportUrl('sales')}
               download
-              className="p-3 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-slate-200 flex items-center justify-between transition-colors"
+              className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between transition-colors"
             >
               <span>{isAr ? 'المبيعات' : 'Sales'}</span>
-              <ArrowUpRight className="w-3.5 h-3.5 text-slate-400" />
+              <ArrowUpRight className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
             </a>
             <a
               href={api.getExportUrl('items')}
               download
-              className="p-3 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-slate-200 flex items-center justify-between transition-colors"
+              className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between transition-colors"
             >
               <span>{isAr ? 'المخزون والقطع' : 'Inventory'}</span>
-              <ArrowUpRight className="w-3.5 h-3.5 text-slate-400" />
+              <ArrowUpRight className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
             </a>
             <a
               href={api.getExportUrl('tickets')}
               download
-              className="p-3 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-slate-200 flex items-center justify-between transition-colors"
+              className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between transition-colors"
             >
               <span>{isAr ? 'تذاكر الصيانة' : 'Repair Tickets'}</span>
-              <ArrowUpRight className="w-3.5 h-3.5 text-slate-400" />
+              <ArrowUpRight className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
             </a>
             <a
               href={api.getExportUrl('customers')}
               download
-              className="p-3 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-slate-200 flex items-center justify-between transition-colors"
+              className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between transition-colors"
             >
               <span>{isAr ? 'سجل العملاء' : 'Customers'}</span>
-              <ArrowUpRight className="w-3.5 h-3.5 text-slate-400" />
+              <ArrowUpRight className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
             </a>
           </div>
 
-          <div className="pt-3 border-t border-slate-800">
-            <h4 className="text-xs font-bold text-slate-300 mb-2 flex items-center gap-1.5">
+          <div className="pt-3 border-t border-slate-200 dark:border-slate-800">
+            <h4 className="text-xs font-bold text-slate-600 dark:text-slate-300 mb-2 flex items-center gap-1.5">
               <HardDrive className="w-3.5 h-3.5 text-emerald-400" />
               {isAr ? 'سجل النسخ الاحتياطية المتاحة' : 'Available Backups'}
             </h4>
             <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
               {backups.map((b, idx) => (
-                <div key={idx} className="flex justify-between items-center text-[11px] p-2 rounded-lg bg-slate-950/60 border border-slate-800/60">
-                  <span className="font-mono text-slate-300 truncate max-w-[170px]">{b.filename}</span>
-                  <span className="text-slate-500 font-mono">{(b.sizeBytes / 1024).toFixed(0)} KB</span>
+                <div key={idx} className="flex justify-between items-center text-[11px] p-2 rounded-lg bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800/60">
+                  <span className="font-mono text-slate-600 dark:text-slate-300 truncate max-w-[170px]">{b.filename}</span>
+                  <span className="text-slate-500 dark:text-slate-500 font-mono">{(b.sizeBytes / 1024).toFixed(0)} KB</span>
                 </div>
               ))}
               {backups.length === 0 && (
@@ -265,13 +265,13 @@ export const DashboardView: React.FC = () => {
         </div>
 
         {/* Right Column: Live Audit Logs */}
-        <div className="lg:col-span-2 p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
+        <div className="lg:col-span-2 p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4 transition-colors">
           <div className="flex justify-between items-center">
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
               {isAr ? 'سجل العمليات والتدقيق الأمني (Audit Log)' : 'Audit Trail & Operations Log'}
             </h3>
-            <span className="text-[11px] text-slate-400">
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">
               {isAr ? 'آخر 10 حركات حساسة' : 'Last 10 security actions'}
             </span>
           </div>
@@ -279,7 +279,7 @@ export const DashboardView: React.FC = () => {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
-                <tr className="border-b border-slate-800 text-slate-400 font-semibold text-[11px]">
+                <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-semibold text-[11px]">
                   <th className="pb-2">{isAr ? 'الوقت' : 'Timestamp'}</th>
                   <th className="pb-2">{isAr ? 'العملية' : 'Action'}</th>
                   <th className="pb-2">{isAr ? 'نوع السجل' : 'Entity'}</th>
@@ -287,10 +287,10 @@ export const DashboardView: React.FC = () => {
                   <th className="pb-2">{isAr ? 'المستخدم / IP' : 'User / IP'}</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/50">
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-800/50">
                 {auditLogs.map((log, idx) => (
-                  <tr key={idx} className="hover:bg-slate-800/30 transition-colors">
-                    <td className="py-2.5 font-mono text-[11px] text-slate-400">
+                  <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                    <td className="py-2.5 font-mono text-[11px] text-slate-500 dark:text-slate-400">
                       {new Date(log.created_at).toLocaleTimeString()}
                     </td>
                     <td className="py-2.5">
@@ -299,18 +299,18 @@ export const DashboardView: React.FC = () => {
                         log.action === 'UPDATE' ? 'bg-sky-500/20 text-sky-400' :
                         log.action === 'DELETE' ? 'bg-rose-500/20 text-rose-400' :
                         log.action === 'LOGIN' ? 'bg-indigo-500/20 text-indigo-400' :
-                        'bg-slate-700 text-slate-300'
+                        'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
                       }`}>
                         {log.action}
                       </span>
                     </td>
-                    <td className="py-2.5 font-medium text-slate-200 text-[11px]">
+                    <td className="py-2.5 font-medium text-slate-700 dark:text-slate-200 text-[11px]">
                       {log.entity_type}
                     </td>
-                    <td className="py-2.5 font-mono text-slate-400 text-[10px]">
+                    <td className="py-2.5 font-mono text-slate-500 dark:text-slate-400 text-[10px]">
                       {log.entity_id || '-'}
                     </td>
-                    <td className="py-2.5 text-slate-400 text-[11px]">
+                    <td className="py-2.5 text-slate-500 dark:text-slate-400 text-[11px]">
                       {log.username || log.ip_address || 'System'}
                     </td>
                   </tr>

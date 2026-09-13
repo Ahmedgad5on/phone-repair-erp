@@ -2676,7 +2676,7 @@ async function runExtendedSuites() {
   assert(liquidatedItem.item_status === 'LIQUIDATED', `Vector h2: Item status = LIQUIDATED (actual: ${liquidatedItem.item_status})`);
 
   // Vector h3: Audit log records liquidation
-  const liqAudit = db.prepare("SELECT * FROM audit_logs WHERE action = 'SCRAP_LIQUIDATED' AND entity_id = ?").get(scrapItem.id) as any;
+  const liqAudit = db.prepare("SELECT * FROM audit_logs WHERE action = 'SCRAP_LIQUIDATED' AND entity_id = ? ORDER BY created_at DESC, rowid DESC").get(scrapItem.id) as any;
   assert(liqAudit !== undefined, 'Vector h3: SCRAP_LIQUIDATED audit log entry exists');
   if (liqAudit) {
     assert(liqAudit.user_id === mgrScrapUserId, `Vector h3: Audit records manager actor (actual: ${liqAudit.user_id})`);

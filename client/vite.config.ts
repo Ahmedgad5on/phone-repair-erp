@@ -26,17 +26,22 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          "react-vendor": ["react", "react-dom"],
-          "ui-radix": [
-            "@radix-ui/react-dialog",
-            "@radix-ui/react-dropdown-menu",
-            "@radix-ui/react-select",
-            "@radix-ui/react-tabs",
-          ],
-          "charts": ["recharts"],
-          "dnd": ["@dnd-kit/core", "@dnd-kit/utilities"],
-          "barcode": ["bwip-js", "barcode-detector"],
+        manualChunks(id) {
+          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom')) {
+            return 'react-vendor';
+          }
+          if (id.includes('node_modules/@radix-ui')) {
+            return 'ui-radix';
+          }
+          if (id.includes('node_modules/recharts')) {
+            return 'charts';
+          }
+          if (id.includes('node_modules/@dnd-kit')) {
+            return 'dnd';
+          }
+          if (id.includes('node_modules/bwip-js') || id.includes('node_modules/barcode-detector')) {
+            return 'barcode';
+          }
         },
       },
     },

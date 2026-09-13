@@ -9,8 +9,13 @@ export function csrfProtection(req: Request, res: Response, next: NextFunction) 
     return next();
   }
 
-  // Exempt public webhooks with signature verification
-  if (req.path.startsWith('/api/integrations/payments/webhook') || req.path.startsWith('/api/integrations/shipping/webhook')) {
+  // Exempt public webhooks and public auth endpoints
+  if (
+    req.path.startsWith('/api/integrations/payments/webhook') ||
+    req.path.startsWith('/api/integrations/shipping/webhook') ||
+    req.path === '/api/auth/login' ||
+    req.path === '/auth/login'
+  ) {
     return next();
   }
 

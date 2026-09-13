@@ -1,11 +1,19 @@
 const API_BASE = '/api';
 
 async function fetchWithAuth<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const token = localStorage.getItem('auth_token');
+  const token = localStorage.getItem('erp_token') || localStorage.getItem('auth_token');
   const headers = new Headers(options.headers || {});
 
   if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
+  }
+
+  if (!headers.has('X-Requested-With')) {
+    headers.set('X-Requested-With', 'XMLHttpRequest');
+  }
+
+  if (!headers.has('X-ERP-Client')) {
+    headers.set('X-ERP-Client', 'desktop');
   }
 
   if (token) {

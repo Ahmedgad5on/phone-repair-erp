@@ -80,11 +80,13 @@ class OfflineSyncManager {
 
     for (const item of this.queue) {
       try {
-        const token = localStorage.getItem('auth_token');
+        const token = localStorage.getItem('erp_token') || localStorage.getItem('auth_token');
         const res = await fetch(`/api${item.endpoint}`, {
           method: item.method,
           headers: {
             'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-ERP-Client': 'desktop',
             ...(token ? { Authorization: `Bearer ${token}` } : {})
           },
           body: JSON.stringify(item.payload)

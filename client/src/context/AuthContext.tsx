@@ -58,6 +58,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const res = await api.login({ username, password });
       if (res.success && res.token) {
         localStorage.setItem('erp_token', res.token);
+        localStorage.setItem('auth_token', res.token);
         localStorage.setItem('erp_user', JSON.stringify(res.user));
         setToken(res.token);
         setUser(res.user);
@@ -71,6 +72,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = useCallback(() => {
     localStorage.removeItem('erp_token');
+    localStorage.removeItem('auth_token');
     localStorage.removeItem('erp_user');
     setToken(null);
     setUser(null);
