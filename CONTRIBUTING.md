@@ -8,11 +8,12 @@ Welcome to the **Modular Mobile Repair Lab, Retail POS & Fintech ERP** repositor
 
 ### 1.1 Branch Strategy
 - **Base Branch:** All work branches originate from and merge back into `main` (or active milestone release branch).
-- **Naming Standard:** Every branch must follow the pattern:
+- **Naming Standard:** Every branch must follow one of the registered patterns:
   ```text
-  feature/NNN-feature-name
+  feature/NNN-feature-name      (Single Feature Milestone)
+  wave/wave-name                (Multi-Feature Consolidated Wave)
   ```
-  *(e.g. `feature/001-durability-wal-full`, `feature/002-repair-kanban-board`)*
+  *(e.g. `feature/001-foundation-hardening`, `wave/profitability-and-collections`)*
 - Direct pushes or commits to `main` without an approved Review Brief are strictly prohibited.
 
 ### 1.2 Commit Discipline

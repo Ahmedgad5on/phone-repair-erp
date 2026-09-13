@@ -80,7 +80,7 @@
 ---
 
 ### 11. Forensic Audit Log (سجل التدقيق الجنائي)
-- **Exact Definition:** A synchronous, append-only, immutable database ledger (`audit_log`) capturing all security-sensitive, overriding, or financial mutations (price changes, sales returns, stock count overrides, warranty voiding, repair estimate approval logging per DEC-029, PO approvals, HR payroll modifications). Every entry records actor user ID, client IP, timestamp, action type, entity ID, before/after states, and non-empty justification (DEC-024, Constitution §1 Principle V.2).
+- **Exact Definition:** A synchronous, append-only, immutable database logging architecture operating via a dual-write pipeline: human-readable deltas in `audit_logs` / `audit_log`, and a cryptographically chained tamper-evident ledger in `audit_trail_immutable` where each entry's SHA-256 hash is bound to its predecessor via `cryptoService.generateChainedHash()` (Constitution §1 Principle V.2, `server/src/services/audit.service.ts`). Captures all security-sensitive, overriding, or financial mutations (price changes, sales returns, stock count overrides, warranty voiding, repair estimate approval logging per DEC-029, PO approvals, HR payroll modifications, installment escalations). Every entry records real actor user ID, client IP, timestamp, action type, entity ID, before/after states, and non-empty justification (DEC-024, DEC-046). Primary financial ledger tables (journal_entries, wallet tables) remain UNCHAINED — cryptographic chaining there remains future hardening.
 - **Invalid Usages:** Must NOT be confused with transient application debug logs, web server access logs, or console error outputs.
 
 ---

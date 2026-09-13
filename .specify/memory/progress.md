@@ -52,7 +52,7 @@
 > 1. `AUTH_SECRET` vs `JWT_SECRET` dual-path — possible consolidation / enforce no-fallback in production. Requires separate future owner gate.
 > 2. Test-run backup suppression — suppress or clean up automated test snapshots to avoid test-run backup accumulation (e.g. 84 backups in test runs).
 > 3. Protect `/api/docs*` behind workstation token gate.
-> 4. Audit table structural unification (`audit_log` vs `audit_logs`) — scheduled for maintenance refactor.
+> 4. **[Next Wave Backlog: Feature 007/008 Maintenance Pass] Audit Table Structural Unification** — Unify `audit_log` (singular) and `audit_logs` (plural) into a single canonical audit structure while preserving the physical cryptographic hash chain `audit_trail_immutable`. Promoted to active backlog per Owner directive.
 > 5. **[Feature 003 Adversarial] Base64 regex hardening** — Current regex `^data:image\/(jpeg|png);base64,` is functional but could be tightened to reject malformed data URIs. Low risk; deferred to maintenance refactor. (Adversarial Vector 4)
 > 6. **[Feature 003 Adversarial] Account existence check** — Journal entry creation assumes `acc-5040` and `acc-1040` exist (seeded by migration 014). No runtime validation of account existence before INSERT. Low risk; accounts are seeded at startup. (Adversarial Vector 6)
 > 7. **[Feature 003 Adversarial] Evidence file path in logAudit** — `newValues.evidencePath` logged in audit could leak server filesystem paths. Consider logging only the SHA-256 hash instead. Low risk; internal audit log only. (Adversarial Vector 7)
@@ -85,16 +85,32 @@
   4. FK constraint on `journal_entries.created_by_user_id` — SuperAdmin fallback when no auth.
   5. `warranty_cost_amount` UPDATE separated from journal entry transaction (atomicity fix).
   6. Repair reservation defense in RTV rejection route querying `repair_consumed_parts` and `items.reserved_quantity`.
-- **Status:** Feature 003 COMPLETE (344 PASSED, 0 FAILED). All batches delivered and verified. Ready for `--no-ff` merge to main.
+- **Status:** Feature 003 COMPLETE & RATIFIED (344 PASSED, 0 FAILED). Merged to `main` with `--no-ff` (commit `b3b36a9`). Remediation program officially closed.
 
+### 1.5 Wave: Profitability & Collections (Features 004 / 005 / 006) — Pre-Implementation Gate
+- **Wave Scope:**
+  - **Feature 004:** Installments Collections Command Center (`specs/004-installments-command-center/`)
+  - **Feature 005:** Profitability & Margin Analytics Engine (`specs/005-profitability-analytics/`)
+  - **Feature 006:** Customer Loyalty Tiers (Light-Weight) (`specs/006-loyalty-tiers/`)
+- **Status:** Combined Wave Package (3x Spec, 3x Plan, 1x Consolidated Tasks Tracker) Prepared & Standing at Wave Gate.
+- **Test Suite Allocations:** Test Suites 77–83 (77+ onwards).
+- **Target Migration:** `016_profitability_and_collections.ts` (Batch 1 unified migration; last-used in schema was 015: `015_add_defective_scrap_lifecycle`).
+- **Allocated Non-Functional Requirements (NFR):**
+  - `NFR-006`: Sub-50ms collections dashboard response under SQLite WAL concurrency.
+  - `NFR-007`: Real JWT authenticated actor ID on all installment payment and escalation transactions (`DEC-046`).
+  - `NFR-008`: Pre-aggregated analytics views and indexes guaranteeing sub-50ms reporting without table write-lock contention (`DEC-007`).
+  - `NFR-009`: Strict RBAC (Manager/Admin only, HTTP 403) protecting profitability, margins, and technician attribution.
+  - `NFR-010`: Zero hardcoded business thresholds; all aging, reminder, tier LTV cutoffs, and bonus percentages reside in `settings` table.
+  - `NFR-011`: Strict 30% Manager discount ceiling invariant; tier discount stacking cannot exceed 30% without explicit Admin authorization.
 
-### Standing Rules (Born from Feature 003 Cycle)
+### Standing Rules (Born from Feature 003 Cycle & Wave 1)
 
 | # | Rule | Origin |
 |---|---|---|
 | R5 | **"Skipped = Not Done"** — If a mandated test vector is skipped (e.g. "gracefully skipped when no SCREEN items available"), it is treated as NOT EXECUTED. The task is incomplete until the vector runs and passes. | Suite 74 incident — test was written to skip when no fixture existed |
 | R6 | **"Mandated paste closes ONLY with pasted verbatim output"** — Checkboxes never substitute for terminal output. Any task whose mandate was "paste verbatim output" closes only with the actual pasted block. | Brief 2 rejection — FIX A was asserted with checkboxes instead of verbatim output |
 | R7 | **"READ-BACK from disk"** — After mandated text edits to spec/plan/contributing files, the agent must READ FILE BACK FROM DISK and end response with "READ-BACK:" block quoting saved text. | Owner directive — prevents phantom writes where edit tool reports success but content is stale |
+| R8 | **"Query `schema_migrations` before proposing ANY migration number"** — Check the database via `SELECT version, name FROM schema_migrations ORDER BY version DESC LIMIT 1` and cite the last-used number before drafting any new migration specification or file. Loop-protection applies to prevent collision. | Wave Pre-Implementation Incident — Migration 015 collision |
 
 ---
 
@@ -107,7 +123,7 @@
 
 ---
 
-## 3. Cumulative Ratified Decisions Register (DEC-001 to DEC-043)
+## 3. Cumulative Ratified Decisions Register (DEC-001 to DEC-048)
 
 | ID | Topic | Confirmed Decision / Technical Invariant | Citation | Date |
 |---|---|---|---|---|
@@ -157,6 +173,8 @@
 | **DEC-044** | Shift-Close Backup Blocking | Backup failure during shift close BLOCKS the close (HTTP 500) + SHIFT_CLOSE_BACKUP_FAILED audit event + red banner. Conservative-by-design: with no UPS (DEC-027), an unclosed shift beats an unprotected night. | Owner Ratification DEC-044 | 2026-09-12 |
 | **DEC-045** | Warranty Evidence USB Mirroring | Warranty evidence uploads directory (`uploads/warranty-evidence/`) included in USB disaster-recovery mirroring (DEC-003 scope expansion). | Owner Ratification DEC-045 | 2026-09-12 |
 | **DEC-046** | Ledger-Posting Auth Requirement | All status transitions that post to the general ledger REQUIRE a valid JWT; the audit actor is always the authenticated user; no synthetic identity ever touches financial records. | Owner Ratification DEC-046 | 2026-09-12 |
+| **DEC-047** | Universal Warn-Not-Block at POS | LEGAL_HOLD remains WARN-NOT-BLOCK at POS universally. No sale is ever auto-blocked by delinquency status in v1. Legal escalation is an administrative path (MANAGER/ADMIN actions + audit), not a sales gate. Cashier decides at counter. | Owner Ratification DEC-047 | 2026-09-13 |
+| **DEC-048** | Forensic Uploads USB Mirroring | The uploads directory (`/server/uploads/warranty-evidence/`) is INCLUDED in USB disaster mirroring alongside database backups. Forensic evidence must survive host loss (extends DEC-003/DEC-045). | Owner Ratification DEC-048 | 2026-09-13 |
 
 ---
 

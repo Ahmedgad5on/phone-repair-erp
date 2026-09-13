@@ -343,17 +343,30 @@ Actual execution result from `server/test/api.test.ts`:
 | **DEC-032** | Warranty Window | Code lacks explicit window inheritance rules | Replaced part inherits remaining original repair warranty window without renewal | **ADR-032** / Warranty Spec |
 | **DEC-033** | Warranty Void Authority | Technician could theoretically change ticket status directly | Warranty void for physical damage requires mandatory MANAGER approval | **ADR-033** / Warranty Spec |
 | **DEC-034** | PO Approval Threshold | Implemented & merged (Feature 002, commits 5d5ef64/4a51286) | PO > 10,000 EGP stays `PENDING_APPROVAL` until MANAGER/ADMIN approves via JWT token; blocked on GRN intake | **ADR-034** / Implemented (Feature 002) |
-| **DEC-035** | Rejected Supplier Returns | Only GRN rollback exists (`procurement.router.ts#L130`) | If supplier refuses return, move to `DEFECTIVE_SCRAP`, saleable only with MANAGER approval | **ADR-035** / Procurement Spec |
-| **DEC-036** | Parts Reservation | Inventory decremented only upon consumption (`repair.router.ts#L663`) | Logical `reserved_stock` activates immediately on `IN_REPAIR` transition | **ADR-036** / Repair Spec |
+| **DEC-035** | Rejected Supplier Returns | Only GRN rollback exists (`procurement.router.ts#L130`) | If supplier refuses return, move to `DEFECTIVE_SCRAP`, saleable only with MANAGER approval | Implemented (Feature 003 / Suite 75) |
+| **DEC-036** | Parts Reservation | Inventory decremented only upon consumption (`repair.router.ts#L663`) | Logical `reserved_stock` activates immediately on `IN_REPAIR` transition | Implemented (Feature 001 / Suite 68) |
+| **DEC-041** | Warranty Duration Matrix & Grace | Hardcoded 30-day warranty | Category durations (90d screen / 60d battery / 30d other) + window inheritance + 3-day grace | Implemented (Feature 003 / Suite 72) |
+| **DEC-042** | Warranty Void Evidence | Text reason without photographic proof | Mandatory photo upload + SHA-256 integrity hash + Manager RBAC + audit trail | Implemented (Feature 003 / Suite 73) |
+| **DEC-043** | LAN Perimeter Subnets & Seed Token | IPv4 only whitelist | Dual IPv4/IPv6 loopback whitelist + crypto-random seed token for master station | Implemented (Feature 001 / Suite 67) |
+| **DEC-044** | Shift-Close Backup Failure Blocking | Backup failure non-blocking warning | Backup failure strictly blocks shift close with HTTP 500 + red banner + audit | Implemented (Feature 002 / Suite 70) |
+| **DEC-045** | Warranty Evidence USB Mirroring | Database only backup | Warranty evidence uploads directory joined to automated USB disaster-recovery mirror | Implemented (Feature 003 / DEC-045) |
+| **DEC-046** | Ledger-Posting Real Actor Auth | Synthetic user fallback | Strict JWT authentication and real actor tracking on all GL postings and scrap status changes | Implemented (Feature 003 / Suite 74, 75) |
+| **DEC-047** | Universal Warn-Not-Block at POS | Unenforced / ad-hoc | Universal warn-not-block: delinquent/LEGAL_HOLD customers show high-contrast banner in cashier cart, but checkout is never blocked at counter. Legal escalation is strictly an administrative/recovery track. | Feature 004 / Suite 78 |
+| **DEC-048** | Warranty Uploads USB Mirroring | Database only backup | Forensic uploads directory (`/server/uploads/warranty-evidence/`) included in automated USB disaster mirroring alongside DB backups (extends DEC-003/DEC-045). | Implemented / Feature 003 & 004 |
 
 ---
 
 ## 10. Known Gaps & Technical Debt
 
-1. **Dual Audit Tables:** The schema contains both `audit_log` (used by void sales and quick operations) and `audit_logs` (used by standard service calls). These must be unified into a single canonical audit table in Phase 2.
-2. **Missing Logical Parts Reservation:** `repair.router.ts#L663` decrements inventory only when parts are consumed. Devices diagnosed and waiting for customer approval do not reserve stock, creating a race condition with POS retail sales.
+1. **Triple Audit Architecture & Unification Backlog:**
+   - The schema physically maintains three distinct audit structures:
+     a. `audit_logs` (plural): Standard enterprise audit table created in initial bootstrap schema (`migrations.ts#L354`).
+     b. `audit_log` (singular): Retail-specific audit table defined in `retail.router.ts#L19`.
+     c. `audit_trail_immutable`: A physical **THIRD table** (not a view or alias) originating from migration bootstrap (Table 28 / Proposal 35, `migrations.ts#L1001-L1014`), functioning as a tamper-evident cryptographic SHA-256 hash-chained ledger managed via `audit.service.ts`.
+   - **Backlog Promotion:** Structural unification of `audit_log` and `audit_logs` into a single canonical audit structure while preserving the cryptographic ledger `audit_trail_immutable` is now formally promoted to a named work item in the next wave's backlog (candidate for Feature 007/008 maintenance pass).
+2. **Missing Logical Parts Reservation:** `repair.router.ts#L663` decrements inventory only when parts are consumed. Devices diagnosed and waiting for customer approval do not reserve stock, creating a race condition with POS retail sales. [Mitigated in Feature 001 / DEC-036 / Test Suite 68].
 3. **Hardcoded Strings in Translations:** Some newer modal dialogues in `client/src/views/fintech/` contain hardcoded Arabic strings instead of referencing `client/src/i18n/translations.ts`.
-4. **PO Creation Lacks Approval Ceiling:** `procurement.router.ts#L302` creates purchase orders directly in `ORDERED` status regardless of amount, bypassing financial approval hierarchy.
+4. **PO Creation Lacks Approval Ceiling:** `procurement.router.ts#L302` creates purchase orders directly in `ORDERED` status regardless of amount, bypassing financial approval hierarchy. [Mitigated in Feature 002 / DEC-034 / Test Suite 69].
 5. **No Client-Side Test Runner:** The frontend lacks unit test configuration (`vitest` or `@testing-library/react`), leaving UI state and view code dependent on manual verification.
 
 ---

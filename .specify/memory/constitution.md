@@ -1,10 +1,10 @@
 # System Constitution: Phone Repair Lab, Retail POS & Fintech ERP
 
-**Document Version:** 1.0.1  
-**Status:** Ratified (Owner Authorization: "Discovery complete" / "الحزمة معتمدة بشرط سطر واحد")  
-**Ratification Date:** 2026-09-12  
+**Document Version:** 1.0.2  
+**Status:** Ratified (Owner Authorization: "Discovery complete" / "الحزمة معتمدة بشرط سطر واحد" / CA1 v1.0.2)  
+**Ratification Date:** 2026-09-13  
 **Canonical File:** `.specify/memory/constitution.md`  
-**Governing Authorities:** DEC-001 through DEC-041  
+**Governing Authorities:** DEC-001 through DEC-048  
 **Scope:** Universal architectural, financial, operational, and development invariants for the entire repository.
 
 ---
@@ -31,7 +31,7 @@ Where any specification, pull request, or development practice conflicts with th
 1. **Mathematical Invariant:** Every financial transaction impacting accounts MUST generate balanced double-entry journal records strictly satisfying:
    $$\sum \text{Debits} \equiv \sum \text{Credits}$$
    Transactions violating this identity MUST be rejected at the API and database boundary with HTTP 422 Unprocessable Entity.
-2. **Posted Record Immutability:** Once a journal entry is posted, it becomes permanent, append-only, and immutable (deletion or mutation forbidden; HTTP 403 Forbidden). Any correction MUST be executed as a compensating counter-entry. Cryptographic hash-chaining across primary ledger tables is queued as future hardening.
+2. **Posted Record Immutability:** Once a journal entry is posted, it becomes permanent, append-only, and immutable (deletion or mutation forbidden; HTTP 403 Forbidden). Any correction MUST be executed as a compensating counter-entry. Cryptographic hash-chaining is IMPLEMENTED in `audit_trail_immutable` (physical third table, origin: bootstrap Table 28 / Proposal 35, migrations.ts#L1001-L1014) via dual-write with `audit_logs` using `cryptoService.generateChainedHash()`. Primary financial ledger tables (journal_entries, wallet tables) remain UNCHAINED — cryptographic chaining there remains future hardening.
 3. **Approval Hierarchies:**
    - **Customer Payments & Outflows:** Any financial disbursement or customer payout exceeding 5,000 EGP requires dual authorization, escalating from Cashier to Manager, with final sign-off by the ADMIN acting as functional Chief Financial Officer (`DEC-028`).
    - **Supplier Procurement:** Supplier Purchase Orders exceeding 10,000 EGP MUST remain in `PENDING_APPROVAL` until approved by MANAGER or ADMIN before transmission (`DEC-034`).
@@ -54,7 +54,7 @@ Where any specification, pull request, or development practice conflicts with th
 
 ### Principle V: Evidence-Based Definition of Done & Forensic Auditability
 1. **Automated Verification Baseline & Quality Gates:** No code change, architectural modification, or bug fix is complete without tests actually executed, with the run output shown in the Review Brief. Every new feature or task MUST ship its own automated tests. The regression test suite (159 passing test baseline across 66 suites) MUST maintain a 100% pass rate.
-2. **Forensic Auditability:** Any privileged, sensitive, or overriding action MUST synchronously write an append-only, immutable entry to `audit_log` (deletion or mutation forbidden) capturing actor ID, client IP, action type, entity ID, before/after states, and non-empty justification (`DEC-024`). Cryptographic hash-chaining across primary audit tables is queued as future hardening.
+2. **Forensic Auditability & Cryptographic Chaining:** Any privileged, sensitive, or overriding action MUST synchronously write an append-only, immutable entry to `audit_logs` (deletion or mutation forbidden) capturing actor ID, client IP, action type, entity ID, before/after states, and non-empty justification (`DEC-024`). Cryptographic hash-chaining is IMPLEMENTED in `audit_trail_immutable` (physical third table, origin: bootstrap Table 28 / Proposal 35, migrations.ts#L1001-L1014) via dual-write with `audit_logs` using `cryptoService.generateChainedHash()`. Primary financial ledger tables (journal_entries, wallet tables) remain UNCHAINED — cryptographic chaining there remains future hardening.
 3. **Mandatory Audit Triggers:**
    - Sales voids and returns (`DEC-021`).
    - Retail and cost price modifications (`DEC-024`).
@@ -149,6 +149,7 @@ Where any specification, pull request, or development practice conflicts with th
 |---|---|---|---|---|
 | **1.0.0** | 2026-09-12 | Owner Ratification (Eng_Ahmed) | Ratified Foundation Constitution: "FINAL CONSTITUTION GATE: The diff is accepted in spirit; three corrections before ratification is final. Constitution v1.0.0 = RATIFIED" (F1–F4 applied). | **Ratified** |
 | **1.0.1** | 2026-09-12 | Owner Ratification (Eng_Ahmed) | Owner-ratified amendment: Warranty Governance §2.1.4 updated to incorporate DEC-041 (configurable category durations + 3-day grace). Retroactively approved; logged after the fact — protocol reminder recorded. | **Ratified** |
+| **1.0.2** | 2026-09-13 | Owner Ratification (Eng_Ahmed) | **Amendment 1.0.2 — Cryptographic Audit Reality Correction:**<br>1. Principle II.2 & V.2 are amended: cryptographic hash-chaining is IMPLEMENTED in `audit_trail_immutable` (physical third table, origin: bootstrap Table 28 / Proposal 35, migrations.ts#L1001-L1014) via dual-write with `audit_logs` using `cryptoService.generateChainedHash()`.<br>2. Primary financial ledger tables (journal_entries, wallet tables) remain UNCHAINED — cryptographic chaining there remains future hardening.<br>3. Glossary term #11 (Forensic Audit Log) is amended to describe the dual-write architecture: human-readable deltas in audit_logs + tamper-evident chain in audit_trail_immutable.<br>4. Version: 1.0.1 → 1.0.2. | **Ratified** |
 
 ---
-**Version**: 1.0.1 | **Ratified**: 2026-09-12 (Owner Ratified) | **Last Amended**: 2026-09-12
+**Version**: 1.0.2 | **Ratified**: 2026-09-13 (Owner Ratified) | **Last Amended**: 2026-09-13
