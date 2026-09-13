@@ -2711,13 +2711,14 @@ async function runExtendedSuites() {
   const scrapCust = db.prepare("SELECT id FROM customers LIMIT 1").get() as any;
   assert(scrapCust !== undefined, 'Vector k0: Customer fixture available');
   const resTicketId = `ticket-res-${uuidv4().substring(0, 8)}`;
+  const resTicketNum = (db.prepare('SELECT COALESCE(MAX(CAST(ticket_number AS INTEGER)), 9000) + 1 as num FROM repair_tickets').get() as any).num;
   db.prepare(
     `INSERT INTO repair_tickets (
       id, store_id, ticket_number, customer_id, device_brand, device_model, reported_defects,
       status, priority, estimated_cost, release_otp
     ) VALUES (?, ?, ?, ?, 'Apple', 'iPhone 13', 'Screen issue',
       'IN_REPAIR', 'NORMAL', 1500, '9999')`
-  ).run(resTicketId, defaultStore.id, `TICK-RES-${Date.now().toString().slice(-4)}`, scrapCust.id);
+  ).run(resTicketId, defaultStore.id, resTicketNum, scrapCust.id);
 
   // Insert reserved consumed part in repair_consumed_parts
   const rcpResId = `rcp-res-${uuidv4().substring(0, 8)}`;
