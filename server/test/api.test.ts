@@ -1,3 +1,5 @@
+process.env.NODE_ENV = 'test';
+
 import fs from 'fs';
 import path from 'path';
 import db from '../src/db/database';
@@ -25,7 +27,7 @@ import { TradeInService } from '../src/modules/retail/trade-in.service';
 import { checkSlaEscalations } from '../src/modules/repair/repair.service';
 import { WhatsAppService } from '../src/services/whatsapp.service';
 import { signToken, verifyToken } from '../src/middleware/auth';
-import { createDatabaseBackup, listBackups } from '../src/services/backup.service';
+import { createDatabaseBackup, listBackups, listProductionBackups, getBackupDir, cleanTestBackups, BASE_BACKUP_DIR, TEST_SCRATCH_DIR } from '../src/services/backup.service';
 import { logAudit, getRecentAuditLogs } from '../src/services/audit.service';
 import { RepairRepository } from '../src/repositories/repair.repository';
 import { InventoryRepository } from '../src/repositories/inventory.repository';
@@ -987,7 +989,7 @@ async function runExtendedSuites() {
 
   const invalidLeapRes = await fetch(`${baseUrl}/api/repair/tickets/${tktId}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({ status: 'DELIVERED' })
   });
   const invalidLeapData = (await invalidLeapRes.json()) as any;
@@ -999,23 +1001,23 @@ async function runExtendedSuites() {
 
   await fetch(`${baseUrl}/api/repair/tickets/${tktId}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({ status: 'DIAGNOSED' })
   });
   await fetch(`${baseUrl}/api/repair/tickets/${tktId}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({ status: 'IN_REPAIR' })
   });
   await fetch(`${baseUrl}/api/repair/tickets/${tktId}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({ status: 'QA' })
   });
 
   const readyWithoutQcRes = await fetch(`${baseUrl}/api/repair/tickets/${tktId}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({ status: 'READY' })
   });
   const readyWithoutQcData = (await readyWithoutQcRes.json()) as any;
@@ -1027,7 +1029,7 @@ async function runExtendedSuites() {
 
   const readyWithQcRes = await fetch(`${baseUrl}/api/repair/tickets/${tktId}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({
       status: 'READY',
       qa_checklist: { screen: true, touch: true, battery: true, camera: true }
@@ -1583,7 +1585,7 @@ async function runExtendedSuites() {
   // Move Ticket 1 to IN_REPAIR -> triggers reservation
   const tkt1InRepairRes = await fetch(`${baseUrl}/api/repair/tickets/${tkt1Id}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({ status: 'IN_REPAIR' })
   });
   assert(tkt1InRepairRes.status === 200, 'Vector (c).1: Ticket 1 transitioned to IN_REPAIR');
@@ -1591,7 +1593,7 @@ async function runExtendedSuites() {
   // Move Ticket 2 to IN_REPAIR -> triggers reservation
   const tkt2InRepairRes = await fetch(`${baseUrl}/api/repair/tickets/${tkt2Id}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({ status: 'IN_REPAIR' })
   });
   assert(tkt2InRepairRes.status === 200, 'Vector (c).2: Ticket 2 transitioned to IN_REPAIR');
@@ -1605,14 +1607,14 @@ async function runExtendedSuites() {
   // Branch 1: Deliver Ticket 1 (requires QA checklist for READY -> then DELIVERED)
   const tkt1ReadyRes = await fetch(`${baseUrl}/api/repair/tickets/${tkt1Id}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({ status: 'READY', qa_checklist: { battery_tested: true, charge_cycle: 100 } })
   });
   assert(tkt1ReadyRes.status === 200, 'Vector (c).4: Ticket 1 transitioned to READY with valid QA checklist');
 
   const tkt1DeliverRes = await fetch(`${baseUrl}/api/repair/tickets/${tkt1Id}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({ status: 'DELIVERED' })
   });
   assert(tkt1DeliverRes.status === 200, 'Vector (c).5: Ticket 1 transitioned to DELIVERED');
@@ -1626,7 +1628,7 @@ async function runExtendedSuites() {
   // Branch 2: Cancel Ticket 2
   const tkt2CancelRes = await fetch(`${baseUrl}/api/repair/tickets/${tkt2Id}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({ status: 'CANCELLED' })
   });
   assert(tkt2CancelRes.status === 200, 'Vector (c).7: Ticket 2 transitioned to CANCELLED');
@@ -1827,7 +1829,7 @@ async function runExtendedSuites() {
   assert(shiftCloseData.backup !== null && typeof shiftCloseData.backup.filename === 'string', 'Vector 1d: Shift close response contains backup snapshot metadata');
 
   // Verify backup exists physically on disk and has positive size (precedes response per ADR-002)
-  const backupOnDisk = path.join(process.cwd(), 'backups', shiftCloseData.backup.filename);
+  const backupOnDisk = shiftCloseData.backup.path || path.join(process.cwd(), 'backups', shiftCloseData.backup.filename);
   assert(fs.existsSync(backupOnDisk) && fs.statSync(backupOnDisk).size > 0, 'Vector 1e: Verified SQLite backup snapshot physically exists on disk (RPO=0 guaranteed)');
 
   // Vector 2: Verify audit trail contains the user ID
@@ -2092,6 +2094,682 @@ async function runExtendedSuites() {
   assert(finalizedSci.variance === -1, 'Vector 4l: stock_count_items variance recorded as -1');
   assert(finalizedSci.counted_quantity === 45, 'Vector 4m: stock_count_items counted_quantity recorded as 45');
 
+  // =========================================================================
+  // TEST 72: Warranty Duration Matrix, Window Inheritance & 3-Day Grace (DEC-041, DEC-032, FR-007)
+  // =========================================================================
+  // =========================================================================
+  // TEST 72: Warranty Duration Matrix, Window Inheritance & 3-Day Grace (DEC-041, DEC-032, FR-007)
+  // =========================================================================
+  console.log('\n[Test Suite 72: Warranty Duration Matrix, Window Inheritance & 3-Day Grace (DEC-041, DEC-032, FR-007)]');
+
+  // Helper: Traverse lifecycle states INTAKE -> DIAGNOSED -> IN_REPAIR -> READY -> DELIVERED
+  async function deliverRepairTicket(tktId: string, qaChecklist: any, authHeaders?: Record<string, string>) {
+    const hdrs = { 'Content-Type': 'application/json', ...authHeaders };
+    await fetch(`${baseUrl}/api/repair/tickets/${tktId}/status`, {
+      method: 'PATCH',
+      headers: hdrs,
+      body: JSON.stringify({ status: 'DIAGNOSED' })
+    });
+    await fetch(`${baseUrl}/api/repair/tickets/${tktId}/status`, {
+      method: 'PATCH',
+      headers: hdrs,
+      body: JSON.stringify({ status: 'IN_REPAIR' })
+    });
+    const readyRes = await fetch(`${baseUrl}/api/repair/tickets/${tktId}/status`, {
+      method: 'PATCH',
+      headers: hdrs,
+      body: JSON.stringify({ status: 'READY', qa_checklist: qaChecklist })
+    });
+    const deliverRes = await fetch(`${baseUrl}/api/repair/tickets/${tktId}/status`, {
+      method: 'PATCH',
+      headers: hdrs,
+      body: JSON.stringify({ status: 'DELIVERED' })
+    });
+    return { readyRes, deliverRes };
+  }
+
+  // Vector 1: Screen repair gets 90-day warranty (DEC-041)
+  const screenTicketRes = await fetch(`${baseUrl}/api/repair/tickets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_name: 'Amr Warranty Test',
+      customer_phone: '01055551111',
+      device_brand: 'Apple',
+      device_model: 'iPhone 13 Pro',
+      reported_defects: 'Broken OLED Screen Replacement',
+      priority: 'NORMAL',
+      estimated_cost: 3500
+    })
+  });
+  const screenTicketData = (await screenTicketRes.json()) as any;
+  assert(screenTicketRes.status === 201, 'Vector 1a: Screen repair ticket created with HTTP 201');
+  const screenTicketId = screenTicketData.ticket?.id || screenTicketData.id;
+
+  const { readyRes: screenReadyRes, deliverRes: screenDeliveredRes } = await deliverRepairTicket(screenTicketId, { screen: true, touch: true, power: true }, { 'Authorization': `Bearer ${token}` });
+  assert(screenReadyRes.status === 200, 'Vector 1b: Screen ticket transitioned to READY');
+  assert(screenDeliveredRes.status === 200, 'Vector 1c: Screen ticket delivered');
+
+  const screenTicketDb = db.prepare('SELECT warranty_duration_days, warranty_expiry_date FROM repair_tickets WHERE id = ?').get(screenTicketId) as any;
+  assert(screenTicketDb.warranty_duration_days === 90, 'Vector 1d: Screen repair assigned 90-day warranty duration per DEC-041');
+  const screenExpiryDate = new Date(screenTicketDb.warranty_expiry_date);
+  const screenDeliveredDate = new Date();
+  const screenDiffDays = Math.round((screenExpiryDate.getTime() - screenDeliveredDate.getTime()) / (24 * 60 * 60 * 1000));
+  assert(screenDiffDays >= 89 && screenDiffDays <= 90, 'Vector 1e: Screen warranty expiry date calculated as 90 days from delivery');
+
+  const screenCertRes = await fetch(`${baseUrl}/api/repair/tickets/${screenTicketId}/warranty-cert`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  const screenCert = (await screenCertRes.json()) as any;
+  assert(screenCertRes.status === 201, 'Vector 1f: Screen warranty certificate generated');
+  assert(screenCert.warranty_days === 90, 'Vector 1g: Certificate records 90 warranty days');
+  assert(screenCert.warranty_type === 'SCREEN', 'Vector 1h: Certificate records category SCREEN');
+
+  // Vector 2: Battery repair gets 60-day warranty (DEC-041)
+  const battTicketRes = await fetch(`${baseUrl}/api/repair/tickets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_name: 'Hassan Battery Test',
+      customer_phone: '01055552222',
+      device_brand: 'Apple',
+      device_model: 'iPhone 12',
+      reported_defects: 'Original Battery Replacement 80% Health',
+      priority: 'NORMAL',
+      estimated_cost: 1200
+    })
+  });
+  const battTicketData = (await battTicketRes.json()) as any;
+  assert(battTicketRes.status === 201, 'Vector 2a: Battery repair ticket created with HTTP 201');
+  const battTicketId = battTicketData.ticket?.id || battTicketData.id;
+
+  await deliverRepairTicket(battTicketId, { battery: true, charging: true }, { 'Authorization': `Bearer ${token}` });
+  const battTicketDb = db.prepare('SELECT warranty_duration_days, warranty_expiry_date FROM repair_tickets WHERE id = ?').get(battTicketId) as any;
+  assert(battTicketDb.warranty_duration_days === 60, 'Vector 2b: Battery repair assigned 60-day warranty duration per DEC-041');
+
+  // Vector 3: Motherboard/Other repair gets 30-day warranty (DEC-041)
+  const mbTicketRes = await fetch(`${baseUrl}/api/repair/tickets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_name: 'Kareem Board Test',
+      customer_phone: '01055553333',
+      device_brand: 'Samsung',
+      device_model: 'Galaxy S22',
+      reported_defects: 'Charging Flex IC Sub-PBA Port Replacement',
+      priority: 'NORMAL',
+      estimated_cost: 600
+    })
+  });
+  const mbTicketData = (await mbTicketRes.json()) as any;
+  assert(mbTicketRes.status === 201, 'Vector 3a: Motherboard/Port repair ticket created with HTTP 201');
+  const mbTicketId = mbTicketData.ticket?.id || mbTicketData.id;
+
+  await deliverRepairTicket(mbTicketId, { port: true, power: true }, { 'Authorization': `Bearer ${token}` });
+  const mbTicketDb = db.prepare('SELECT warranty_duration_days, warranty_expiry_date FROM repair_tickets WHERE id = ?').get(mbTicketId) as any;
+  assert(mbTicketDb.warranty_duration_days === 30, 'Vector 3b: Motherboard/Port repair assigned 30-day warranty duration per DEC-041');
+
+  // Vector 4: Rework ticket inherits remaining window without resetting to full 90 days (DEC-032)
+  const simulatedRemainingDays = 50;
+  const simulatedExpiryDate = new Date(Date.now() + simulatedRemainingDays * 24 * 60 * 60 * 1000).toISOString();
+  db.prepare('UPDATE repair_tickets SET warranty_expiry_date = ? WHERE id = ?').run(simulatedExpiryDate, screenTicketId);
+
+  const reworkTicketRes = await fetch(`${baseUrl}/api/repair/tickets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_name: 'Amr Warranty Test',
+      customer_phone: '01055551111',
+      device_brand: 'Apple',
+      device_model: 'iPhone 13 Pro',
+      reported_defects: 'Screen Flickering Lines Under Warranty Claim',
+      priority: 'URGENT',
+      estimated_cost: 0,
+      parent_ticket_id: screenTicketId,
+      is_warranty_repair: 1
+    })
+  });
+  const reworkTicketData = (await reworkTicketRes.json()) as any;
+  assert(reworkTicketRes.status === 201, 'Vector 4a: Warranty rework ticket intake accepted with valid parent ticket');
+  const reworkTicketId = reworkTicketData.ticket?.id || reworkTicketData.id;
+  assert(reworkTicketData.ticket?.is_warranty_repair === 1 || reworkTicketData.is_warranty_repair === 1, 'Vector 4b: Rework ticket flagged as is_warranty_repair = 1');
+  assert(reworkTicketData.ticket?.parent_ticket_id === screenTicketId || reworkTicketData.parent_ticket_id === screenTicketId, 'Vector 4c: Rework ticket linked to parent ticket id');
+
+  await deliverRepairTicket(reworkTicketId, { screen: true, touch: true }, { 'Authorization': `Bearer ${token}` });
+  const reworkTicketDb = db.prepare('SELECT warranty_duration_days, warranty_expiry_date FROM repair_tickets WHERE id = ?').get(reworkTicketId) as any;
+  assert(reworkTicketDb.warranty_duration_days === simulatedRemainingDays, `Vector 4d: Rework ticket inherited remaining window (${simulatedRemainingDays} days) without reset to 90 days per DEC-032`);
+  assert(reworkTicketDb.warranty_expiry_date === simulatedExpiryDate, 'Vector 4e: Rework ticket expiry locked to original parent expiry date');
+
+  // Vector 5: Rework ticket with < 3 days remaining receives minimum 3-day testing grace (DEC-041)
+  const defaultStoreObj = db.prepare('SELECT id FROM stores LIMIT 1').get() as any;
+  const defaultCustomerObj = db.prepare('SELECT id FROM customers LIMIT 1').get() as any;
+  const maxTktObj1 = db.prepare('SELECT COALESCE(MAX(ticket_number), 1000) as m FROM repair_tickets').get() as any;
+  const nextTkt1 = maxTktObj1.m + 1000;
+
+  const parentGraceTicketId = 'tkt-grace-parent-' + uuidv4().slice(0, 6);
+  const oneDayRemainingExpiry = new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString();
+  db.prepare(`
+    INSERT INTO repair_tickets (id, ticket_number, store_id, customer_id, device_brand, device_model, reported_defects, release_otp, status, warranty_duration_days, warranty_expiry_date)
+    VALUES (?, ?, ?, ?, 'Apple', 'iPhone 11', 'Original Screen Repair', '1234', 'DELIVERED', 90, ?)
+  `).run(parentGraceTicketId, nextTkt1, defaultStoreObj.id, defaultCustomerObj.id, oneDayRemainingExpiry);
+
+  const graceReworkRes = await fetch(`${baseUrl}/api/repair/tickets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_name: 'Grace Customer',
+      customer_phone: '01099998888',
+      device_brand: 'Apple',
+      device_model: 'iPhone 11',
+      reported_defects: 'Touch issue near expiration',
+      priority: 'URGENT',
+      parent_ticket_id: parentGraceTicketId,
+      is_warranty_repair: 1
+    })
+  });
+  const graceReworkData = (await graceReworkRes.json()) as any;
+  assert(graceReworkRes.status === 201, 'Vector 5a: Intake accepted for ticket near warranty expiry');
+  const graceReworkTicketId = graceReworkData.ticket?.id || graceReworkData.id;
+
+  await deliverRepairTicket(graceReworkTicketId, { touch: true }, { 'Authorization': `Bearer ${token}` });
+  const graceReworkDb = db.prepare('SELECT warranty_duration_days, warranty_expiry_date FROM repair_tickets WHERE id = ?').get(graceReworkTicketId) as any;
+  assert(graceReworkDb.warranty_duration_days === 3, 'Vector 5b: Rework with < 3 days remaining granted exactly 3-day window per FR-007.3');
+  const graceExpiry = new Date(graceReworkDb.warranty_expiry_date);
+  const graceDiffDays = Math.round((graceExpiry.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+  assert(graceDiffDays >= 3, 'Vector 5c: Expiry date pushed 3 days from delivery date');
+
+  // Vector 6: Expired warranty intake rejected with HTTP 422 (FR-007.2)
+  const maxTktObj2 = db.prepare('SELECT COALESCE(MAX(ticket_number), 1000) as m FROM repair_tickets').get() as any;
+  const nextTkt2 = maxTktObj2.m + 1000;
+  const expiredParentTicketId = 'tkt-expired-parent-' + uuidv4().slice(0, 6);
+  const expiredDate = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString();
+  db.prepare(`
+    INSERT INTO repair_tickets (id, ticket_number, store_id, customer_id, device_brand, device_model, reported_defects, release_otp, status, warranty_duration_days, warranty_expiry_date)
+    VALUES (?, ?, ?, ?, 'Xiaomi', 'Redmi Note 11', 'Battery Repair', '5678', 'DELIVERED', 60, ?)
+  `).run(expiredParentTicketId, nextTkt2, defaultStoreObj.id, defaultCustomerObj.id, expiredDate);
+
+  const expiredIntakeRes = await fetch(`${baseUrl}/api/repair/tickets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_name: 'Late Customer',
+      customer_phone: '01077776666',
+      device_brand: 'Xiaomi',
+      device_model: 'Redmi Note 11',
+      reported_defects: 'Attempting warranty return after expiration',
+      parent_ticket_id: expiredParentTicketId,
+      is_warranty_repair: 1
+    })
+  });
+  const expiredData = (await expiredIntakeRes.json()) as any;
+  assert(expiredIntakeRes.status === 422, 'Vector 6a: Expired warranty intake strictly rejected with HTTP 422 per FR-007.2');
+  assert(expiredData.code === 'WARRANTY_EXPIRED', 'Vector 6b: Returned error code WARRANTY_EXPIRED per FR-007.2');
+
+  // Vector 7: Pre-migration parent with NULL warranty_expiry_date → HTTP 422 WARRANTY_RECORD_INCOMPLETE (M1)
+  const nullExpiryParentId = 'tkt-null-expiry-' + uuidv4().slice(0, 6);
+  const maxTktObj3 = db.prepare('SELECT COALESCE(MAX(ticket_number), 1000) as m FROM repair_tickets').get() as any;
+  const nextTkt3 = maxTktObj3.m + 1000;
+  db.prepare(`
+    INSERT INTO repair_tickets (id, ticket_number, store_id, customer_id, device_brand, device_model, reported_defects, release_otp, status, warranty_duration_days, warranty_expiry_date)
+    VALUES (?, ?, ?, ?, 'Samsung', 'Galaxy A54', 'Screen Repair', '9999', 'DELIVERED', 90, NULL)
+  `).run(nullExpiryParentId, nextTkt3, defaultStoreObj.id, defaultCustomerObj.id);
+
+  const nullExpiryIntakeRes = await fetch(`${baseUrl}/api/repair/tickets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_name: 'Null Expiry Customer',
+      customer_phone: '01066665555',
+      device_brand: 'Samsung',
+      device_model: 'Galaxy A54',
+      reported_defects: 'Warranty claim on pre-migration ticket',
+      parent_ticket_id: nullExpiryParentId,
+      is_warranty_repair: 1
+    })
+  });
+  const nullExpiryData = (await nullExpiryIntakeRes.json()) as any;
+  assert(nullExpiryIntakeRes.status === 422, 'Vector 7a: Pre-migration parent with NULL expiry rejected with HTTP 422');
+  assert(nullExpiryData.code === 'WARRANTY_RECORD_INCOMPLETE', 'Vector 7b: Returned error code WARRANTY_RECORD_INCOMPLETE');
+
+  // Vector 8: Accepted-then-delivered-after-expiry → granted window = exactly 3 days (M2 / FR-007.3)
+  const timingParentId = 'tkt-timing-parent-' + uuidv4().slice(0, 6);
+  const maxTktObj4 = db.prepare('SELECT COALESCE(MAX(ticket_number), 1000) as m FROM repair_tickets').get() as any;
+  const nextTkt4 = maxTktObj4.m + 1000;
+  const twoDayExpiry = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
+  db.prepare(`
+    INSERT INTO repair_tickets (id, ticket_number, store_id, customer_id, device_brand, device_model, reported_defects, release_otp, status, warranty_duration_days, warranty_expiry_date)
+    VALUES (?, ?, ?, ?, 'Apple', 'iPhone 12', 'Battery Replacement', '7777', 'DELIVERED', 60, ?)
+  `).run(timingParentId, nextTkt4, defaultStoreObj.id, defaultCustomerObj.id, twoDayExpiry);
+
+  // Intake accepted (parent still has 2 days remaining)
+  const timingIntakeRes = await fetch(`${baseUrl}/api/repair/tickets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_name: 'Timing Test Customer',
+      customer_phone: '01033334444',
+      device_brand: 'Apple',
+      device_model: 'iPhone 12',
+      reported_defects: 'Battery swelling under warranty',
+      parent_ticket_id: timingParentId,
+      is_warranty_repair: 1
+    })
+  });
+  assert(timingIntakeRes.status === 201, 'Vector 8a: Intake accepted when parent has 2 days remaining');
+  const timingData = (await timingIntakeRes.json()) as any;
+  const timingReworkId = timingData.ticket?.id || timingData.id;
+
+  // Simulate delivery AFTER parent expiry (advance past the 2-day window)
+  const pastExpiryDate = new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString();
+  db.prepare('UPDATE repair_tickets SET warranty_expiry_date = ? WHERE id = ?').run(pastExpiryDate, timingParentId);
+
+  await deliverRepairTicket(timingReworkId, { battery: true }, { 'Authorization': `Bearer ${token}` });
+  const timingReworkDb = db.prepare('SELECT warranty_duration_days, warranty_expiry_date FROM repair_tickets WHERE id = ?').get(timingReworkId) as any;
+  assert(timingReworkDb.warranty_duration_days === 3, 'Vector 8b: Delivered after parent expiry — granted exactly 3-day window per FR-007.3');
+  const timingExpiry = new Date(timingReworkDb.warranty_expiry_date);
+  const timingDiffDays = Math.round((timingExpiry.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+  assert(timingDiffDays >= 3 && timingDiffDays <= 4, 'Vector 8c: Granted window is 3 days from delivery date (not from parent expiry)');
+
+  // =========================================================================
+  // TEST 73: Warranty Void Authorization RBAC & Photo Evidence (DEC-033, DEC-042, FR-008)
+  // =========================================================================
+  console.log('\n[Test Suite 73: Warranty Void RBAC & Photo Evidence (DEC-033, DEC-042, FR-008)]');
+
+  const voidTechToken = signToken({ userId: 'u-tech-void', username: 'technician', role: 'Technician', storeId: 'store-default' });
+  const voidMgrToken = signToken({ userId: 'usr-admin', username: 'manager', role: 'Manager', storeId: 'store-default' });
+
+  // Vector 1: Technician void → HTTP 403
+  const techVoidRes = await fetch(`${baseUrl}/api/repair/tickets/${screenTicketId}/void-warranty`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${voidTechToken}` },
+    body: JSON.stringify({ reason: 'Physical damage detected' })
+  });
+  assert(techVoidRes.status === 403, 'Vector 1: Technician role rejected with HTTP 403 for warranty void');
+
+  // Vector 2: Missing photo evidence → HTTP 400 PHOTO_EVIDENCE_REQUIRED
+  const noPhotoRes = await fetch(`${baseUrl}/api/repair/tickets/${screenTicketId}/void-warranty`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${voidMgrToken}` },
+    body: JSON.stringify({ reason: 'Liquid damage' })
+  });
+  const noPhotoData = (await noPhotoRes.json()) as any;
+  assert(noPhotoRes.status === 400, 'Vector 2a: Missing evidence rejected with HTTP 400');
+  assert(noPhotoData.code === 'PHOTO_EVIDENCE_REQUIRED', 'Vector 2b: Error code PHOTO_EVIDENCE_REQUIRED');
+
+  // Vector 3: Wrong MIME type → HTTP 400 EVIDENCE_FORMAT_INVALID
+  const fakeGif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7');
+  const wrongMimeBase64 = `data:image/gif;base64,${fakeGif.toString('base64')}`;
+  const wrongMimeRes = await fetch(`${baseUrl}/api/repair/tickets/${screenTicketId}/void-warranty`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${voidMgrToken}` },
+    body: JSON.stringify({ reason: 'Cracked screen', evidence_base64: wrongMimeBase64 })
+  });
+  const wrongMimeData = (await wrongMimeRes.json()) as any;
+  assert(wrongMimeRes.status === 400, 'Vector 3a: Wrong MIME rejected with HTTP 400');
+  assert(wrongMimeData.code === 'EVIDENCE_FORMAT_INVALID', 'Vector 3b: Error code EVIDENCE_FORMAT_INVALID');
+
+  // Vector 4: Oversized evidence → HTTP 400 EVIDENCE_TOO_LARGE
+  const oversizedDir = path.resolve(process.cwd(), 'uploads/warranty-evidence');
+  if (!fs.existsSync(oversizedDir)) fs.mkdirSync(oversizedDir, { recursive: true });
+  const oversizedPath = path.join(oversizedDir, `oversized-test-${Date.now()}.jpg`);
+  fs.writeFileSync(oversizedPath, Buffer.alloc(5.1 * 1024 * 1024, 0xff));
+  const oversizedRes = await fetch(`${baseUrl}/api/repair/tickets/${screenTicketId}/void-warranty`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${voidMgrToken}` },
+    body: JSON.stringify({ reason: 'Impact damage', evidence_file: oversizedPath })
+  });
+  const oversizedData = (await oversizedRes.json()) as any;
+  assert(oversizedRes.status === 400, 'Vector 4a: Oversized evidence rejected with HTTP 400');
+  assert(oversizedData.code === 'EVIDENCE_TOO_LARGE', 'Vector 4b: Error code EVIDENCE_TOO_LARGE');
+  fs.unlinkSync(oversizedPath);
+
+  // Vector 5: Path traversal via evidence_file → HTTP 400 EVIDENCE_FORMAT_INVALID
+  const traversalRes = await fetch(`${baseUrl}/api/repair/tickets/${screenTicketId}/void-warranty`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${voidMgrToken}` },
+    body: JSON.stringify({ reason: 'Path traversal attempt', evidence_file: '../../etc/passwd' })
+  });
+  const traversalData = (await traversalRes.json()) as any;
+  assert(traversalRes.status === 400, 'Vector 5a: Path traversal rejected with HTTP 400');
+  assert(traversalData.code === 'EVIDENCE_PATH_INVALID', 'Vector 5b: Error code EVIDENCE_PATH_INVALID');
+
+  // Vector 6: Manager with valid JPEG evidence → success + SHA-256 + audit log
+  const validJpeg = Buffer.from('/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMCwsKCwsM', 'base64');
+  const validBase64 = `data:image/jpeg;base64,${validJpeg.toString('base64')}`;
+  const voidRes = await fetch(`${baseUrl}/api/repair/tickets/${screenTicketId}/void-warranty`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${voidMgrToken}` },
+    body: JSON.stringify({ reason: 'Customer physical damage — screen cracked by user', evidence_base64: validBase64 })
+  });
+  const voidData = (await voidRes.json()) as any;
+  assert(voidRes.status === 200, 'Vector 6a: Manager void-warranty succeeded with HTTP 200');
+  assert(voidData.warranty_status === 'VOIDED', 'Vector 6b: Ticket warranty_status set to VOIDED');
+  assert(voidData.evidence_hash && voidData.evidence_hash.length === 64, 'Vector 6c: SHA-256 hash recorded (64 chars)');
+  assert(voidData.approved_by === 'usr-admin', 'Vector 6d: Real manager actor ID recorded');
+
+  // Verify audit log
+  const voidAudit = db.prepare("SELECT * FROM audit_logs WHERE action = 'WARRANTY_VOIDED' AND entity_id = ? ORDER BY created_at DESC LIMIT 1").get(screenTicketId) as any;
+  assert(voidAudit !== undefined, 'Vector 6e: WARRANTY_VOIDED audit log entry exists');
+  assert(voidAudit.user_id === 'usr-admin', 'Vector 6f: Audit log records real manager user_id');
+
+  // =========================================================================
+  // TEST 74: Warranty Parts Operating Expense Tracking (DEC-031, FR-009)
+  // =========================================================================
+  console.log('\n[Test Suite 74: Warranty Parts Expense Tracking (DEC-031, FR-009)]');
+
+  // Self-created SCREEN fixture — no dependence on external seed
+  const fix74Store = (db.prepare('SELECT id FROM stores LIMIT 1').get() as any).id;
+  const fix74ScreenId = 'itm-warranty-screen-' + uuidv4().substring(0, 6);
+  db.prepare(`
+    INSERT INTO items (id, store_id, sku, barcode, name, category, quality_grade, purchase_price, wholesale_price, retail_price, bulk_price, stock_quantity, min_limit, warranty_days)
+    VALUES (?, ?, ?, ?, 'iPhone 13 OLED Screen (Warranty Test)', 'SCREEN', 'TIER_1', 50000, 60000, 75000, 55000, 10, 1, 90)
+  `).run(fix74ScreenId, fix74Store, 'SKU-WSCR-' + uuidv4().substring(0, 4), 'BAR-WSCR-' + Date.now());
+
+  // Create a warranty repair ticket
+  const warrantyPartTicketRes = await fetch(`${baseUrl}/api/repair/tickets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_name: 'Warranty Expense Test',
+      customer_phone: '01088887777',
+      device_brand: 'Apple',
+      device_model: 'iPhone 13',
+      reported_defects: 'Screen Replacement Under Warranty',
+      priority: 'NORMAL',
+      estimated_cost: 0,
+      is_warranty_repair: 1,
+      parent_ticket_id: battTicketId
+    })
+  });
+  const warrantyPartTicketData = (await warrantyPartTicketRes.json()) as any;
+  const warrantyPartTicketId = warrantyPartTicketData.ticket?.id || warrantyPartTicketData.id;
+
+  // Allocate the SCREEN part to the ticket (cost = 50000 piastres)
+  db.prepare(`
+    INSERT INTO repair_consumed_parts (id, ticket_id, item_id, part_name, vendor_batch_code, cost_price, selling_price, is_reserved)
+    VALUES (?, ?, ?, 'iPhone 13 OLED Screen', 'WB-WARRANTY', 50000, 0, 0)
+  `).run(`rcp-${uuidv4().substring(0, 8)}`, warrantyPartTicketId, fix74ScreenId);
+
+  // Deliver the ticket → triggers warranty expense posting
+  const adminAuthHdrs = { 'Authorization': `Bearer ${token}` };
+  await deliverRepairTicket(warrantyPartTicketId, { screen: true }, adminAuthHdrs);
+
+  // Vector 1a: warranty_cost_amount recorded on ticket = 50000 piastres
+  const wpTicket = db.prepare('SELECT warranty_cost_amount FROM repair_tickets WHERE id = ?').get(warrantyPartTicketId) as any;
+  assert(wpTicket.warranty_cost_amount === 50000, `Vector 1a: warranty_cost_amount = 50000 piastres (actual: ${wpTicket.warranty_cost_amount})`);
+
+  // Vector 1b: Journal entry created for warranty parts expense
+  const jeEntry = db.prepare("SELECT * FROM journal_entries WHERE reference_id = ? AND description LIKE '%Warranty%' ORDER BY created_at DESC LIMIT 1").get(warrantyPartTicketId) as any;
+  assert(jeEntry !== undefined, 'Vector 1b: Journal entry created for warranty parts expense');
+
+  // Vector 1c: Debit line to acc-5040 = 50000
+  if (jeEntry) {
+    const debitLine = db.prepare("SELECT * FROM journal_entry_lines WHERE entry_id = ? AND account_id = 'acc-5040'").get(jeEntry.id) as any;
+    assert(debitLine !== undefined, 'Vector 1c: Debit line to acc-5040 (Warranty Parts Expense) exists');
+    if (debitLine) assert(debitLine.debit === 50000, `Vector 1c: Debit acc-5040 = 50000 piastres (actual: ${debitLine.debit})`);
+
+    // Vector 1d: Credit line to acc-1040 = 50000
+    const creditLine = db.prepare("SELECT * FROM journal_entry_lines WHERE entry_id = ? AND account_id = 'acc-1040'").get(jeEntry.id) as any;
+    assert(creditLine !== undefined, 'Vector 1d: Credit line to acc-1040 (Spare Parts Inventory) exists');
+    if (creditLine) assert(creditLine.credit === 50000, `Vector 1d: Credit acc-1040 = 50000 piastres (actual: ${creditLine.credit})`);
+
+    // Vector 1e: Double-entry balanced
+    if (debitLine && creditLine) assert(debitLine.debit === creditLine.credit, `Vector 1e: Double-entry balanced (debit=${debitLine.debit}, credit=${creditLine.credit})`);
+  } else {
+    assert(false, 'Vector 1c: Debit line to acc-5040 (Warranty Parts Expense) exists');
+    assert(false, 'Vector 1d: Credit line to acc-1040 (Spare Parts Inventory) exists');
+    assert(false, 'Vector 1e: Double-entry balanced');
+  }
+
+  // Vector 1f: Customer invoice = 0 piastres (warranty coverage — no charge)
+  const invEntry = db.prepare("SELECT * FROM journal_entries WHERE reference_id = ? AND description LIKE '%Invoice%' ORDER BY created_at DESC LIMIT 1").get(warrantyPartTicketId) as any;
+  if (invEntry) {
+    const invTotal = db.prepare("SELECT SUM(debit) as total FROM journal_entry_lines WHERE entry_id = ? AND account_id LIKE '%1001%'").get(invEntry.id) as any;
+    assert(!invTotal || invTotal.total === 0, 'Vector 1f: Customer invoice total = 0 piastres for warranty coverage');
+  } else {
+    assert(wpTicket.warranty_cost_amount > 0, 'Vector 1f: Warranty cost absorbed (no customer invoice)');
+  }
+
+  // Vector 1g: Audit log records real actor ID (not 'system')
+  const expenseAudit = db.prepare("SELECT * FROM audit_logs WHERE action = 'WARRANTY_EXPENSE_POSTED' AND entity_id = ? ORDER BY created_at DESC LIMIT 1").get(warrantyPartTicketId) as any;
+  assert(expenseAudit !== undefined, 'Vector 1g: WARRANTY_EXPENSE_POSTED audit log entry exists');
+  if (expenseAudit) assert(expenseAudit.user_id !== 'system', `Vector 1g: Audit log records real actor (actual: ${expenseAudit.user_id})`);
+
+  // =========================================================================
+  // TEST 75: RTV Rejection, DEFECTIVE_SCRAP Lifecycle & Liquidation (FR-010, DEC-035)
+  // =========================================================================
+  console.log('\n[Test Suite 75: RTV Rejection, DEFECTIVE_SCRAP Lifecycle & Liquidation (FR-010, DEC-035)]');
+
+  // Create manager user for liquidation tests
+  const mgrScrapUserId = 'usr-mgr-scrap-' + uuidv4().slice(0, 6);
+  db.prepare(
+    `INSERT INTO users (id, username, name, role, store_id) VALUES (?, ?, ?, 'Manager', ?)`
+  ).run(mgrScrapUserId, 'mgr_scrap_' + mgrScrapUserId.slice(-4), 'Manager Scrap', defaultStore.id);
+  const mgrScrapToken = signToken({ userId: mgrScrapUserId, username: 'manager_scrap', role: 'Manager', storeId: defaultStore.id });
+
+  // Create admin user for RTV rejection tests
+  const admScrapUserId = 'usr-admin-scrap-' + uuidv4().slice(0, 6);
+  db.prepare(
+    `INSERT INTO users (id, username, name, role, store_id) VALUES (?, ?, ?, 'Admin', ?)`
+  ).run(admScrapUserId, 'admin_scrap_' + admScrapUserId.slice(-4), 'Admin Scrap', defaultStore.id);
+  const admScrapToken = signToken({ userId: admScrapUserId, username: 'admin_scrap', role: 'Admin', storeId: defaultStore.id });
+
+  // Create technician and cashier tokens for RBAC tests
+  const techScrapUserId = 'usr-tech-scrap-' + uuidv4().slice(0, 6);
+  db.prepare(
+    `INSERT INTO users (id, username, name, role, store_id) VALUES (?, ?, ?, 'Technician', ?)`
+  ).run(techScrapUserId, 'tech_scrap_' + techScrapUserId.slice(-4), 'Tech Scrap', defaultStore.id);
+  const techScrapToken = signToken({ userId: techScrapUserId, username: 'tech_scrap', role: 'Technician', storeId: defaultStore.id });
+
+  const cashScrapUserId = 'usr-cash-scrap-' + uuidv4().slice(0, 6);
+  db.prepare(
+    `INSERT INTO users (id, username, name, role, store_id) VALUES (?, ?, ?, 'Cashier', ?)`
+  ).run(cashScrapUserId, 'cash_scrap_' + cashScrapUserId.slice(-4), 'Cashier Scrap', defaultStore.id);
+  const cashScrapToken = signToken({ userId: cashScrapUserId, username: 'cashier_scrap', role: 'Cashier', storeId: defaultStore.id });
+
+  // Setup: create a supplier return record for an existing item
+  const scrapItem = db.prepare("SELECT * FROM items WHERE deleted_at IS NULL AND stock_quantity > 0 LIMIT 1").get() as any;
+  assert(scrapItem !== undefined, 'Vector 0: Test fixture item available');
+
+  const rtvId = `rtv-${uuidv4().substring(0, 8)}`;
+  db.prepare(
+    `INSERT INTO supplier_returns (id, store_id, item_id, supplier_name, reason, status)
+     VALUES (?, ?, ?, 'Test Supplier', 'Defective on arrival', 'PENDING')`
+  ).run(rtvId, defaultStore.id, scrapItem.id);
+
+  // Vector a: Non-manager liquidation attempt → 403
+  const techLiqRes = await fetch(`${baseUrl}/api/inventory/scrap/liquidate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${techScrapToken}` },
+    body: JSON.stringify({ item_id: scrapItem.id, sale_amount: 1000 })
+  });
+  assert(techLiqRes.status === 403, `Vector a: Non-manager liquidation blocked (actual: ${techLiqRes.status})`);
+
+  // Vector b: RTV reject without auth → 401
+  const unauthRtvRes = await fetch(`${baseUrl}/api/procurement/rtv/${rtvId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason: 'Supplier rejected return' })
+  });
+  assert(unauthRtvRes.status === 401, `Vector b: RTV reject without auth → 401 (actual: ${unauthRtvRes.status})`);
+
+  // Vector c: RTV reject without reason → 422
+  const noReasonRtvRes = await fetch(`${baseUrl}/api/procurement/rtv/${rtvId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${admScrapToken}` },
+    body: JSON.stringify({})
+  });
+  assert(noReasonRtvRes.status === 422, `Vector c: RTV reject without reason → 422 (actual: ${noReasonRtvRes.status})`);
+
+  // Vector d: RTV reject succeeds + item marked DEFECTIVE_SCRAP
+  const rejectRes = await fetch(`${baseUrl}/api/procurement/rtv/${rtvId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${admScrapToken}` },
+    body: JSON.stringify({ reason: 'Supplier rejected return - item defective' })
+  });
+  const rejectData = (await rejectRes.json()) as any;
+  assert(rejectRes.status === 200, `Vector d: RTV reject succeeds (actual: ${rejectRes.status})`);
+  assert(rejectData.success === true, 'Vector d: Response indicates success');
+  assert(rejectData.item_id === scrapItem.id, 'Vector d: Correct item_id returned');
+
+  // Vector d2: Item is now DEFECTIVE_SCRAP
+  const defectiveItem = db.prepare("SELECT * FROM items WHERE id = ?").get(scrapItem.id) as any;
+  assert(defectiveItem.item_status === 'DEFECTIVE_SCRAP', `Vector d2: Item status = DEFECTIVE_SCRAP (actual: ${defectiveItem.item_status})`);
+
+  // Vector d3: Supplier return status = REJECTED
+  const rejectedRtv = db.prepare("SELECT * FROM supplier_returns WHERE id = ?").get(rtvId) as any;
+  assert(rejectedRtv.status === 'REJECTED', `Vector d3: RTV status = REJECTED (actual: ${rejectedRtv.status})`);
+  assert(rejectedRtv.rejected_by === admScrapUserId, `Vector d3: rejected_by = admin user (actual: ${rejectedRtv.rejected_by})`);
+
+  // Vector d4: Audit log records rejection
+  const rtvAudit = db.prepare("SELECT * FROM audit_logs WHERE action = 'RTV_REJECTED' AND entity_id = ?").get(rtvId) as any;
+  assert(rtvAudit !== undefined, 'Vector d4: RTV_REJECTED audit log entry exists');
+  if (rtvAudit) assert(rtvAudit.user_id === admScrapUserId, `Vector d4: Audit records real actor (actual: ${rtvAudit.user_id})`);
+
+  // Vector e: POS sale of DEFECTIVE_SCRAP item → 409
+  const posSaleRes = await fetch(`${baseUrl}/api/retail/sales`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cashScrapToken}` },
+    body: JSON.stringify({
+      customer_name: 'Test Customer',
+      payment_method: 'CASH',
+      items: [{ item_id: scrapItem.id, quantity: 1 }],
+    })
+  });
+  const posSaleData = (await posSaleRes.json()) as any;
+  assert(posSaleRes.status === 409, `Vector e: POS sale of DEFECTIVE_SCRAP → 409 (actual: ${posSaleRes.status})`);
+  assert(posSaleData.code === 'ITEM_IS_DEFECTIVE_SCRAP', `Vector e: Error code = ITEM_IS_DEFECTIVE_SCRAP (actual: ${posSaleData.code})`);
+
+  // Vector f: Liquidation without auth → 401
+  const unauthLiqRes = await fetch(`${baseUrl}/api/inventory/scrap/liquidate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ item_id: scrapItem.id, sale_amount: 500 })
+  });
+  assert(unauthLiqRes.status === 401, `Vector f: Liquidation without auth → 401 (actual: ${unauthLiqRes.status})`);
+
+  // Vector g: Liquidation of non-DEFECTIVE_SCRAP item → 422
+  const activeItem = db.prepare("SELECT * FROM items WHERE item_status IS NULL AND deleted_at IS NULL AND stock_quantity > 0 LIMIT 1").get() as any;
+  if (activeItem) {
+    const activeLiqRes = await fetch(`${baseUrl}/api/inventory/scrap/liquidate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${mgrScrapToken}` },
+      body: JSON.stringify({ item_id: activeItem.id, sale_amount: 1000 })
+    });
+    assert(activeLiqRes.status === 422, `Vector g: Liquidation of ACTIVE item → 422 (actual: ${activeLiqRes.status})`);
+  }
+
+  // Vector h: Liquidation of DEFECTIVE_SCRAP item by Manager succeeds
+  const liqRes = await fetch(`${baseUrl}/api/inventory/scrap/liquidate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${mgrScrapToken}` },
+    body: JSON.stringify({ item_id: scrapItem.id, sale_amount: 5000, buyer_name: 'Scrap Buyer Co.', notes: 'Sold as scrap' })
+  });
+  const liqData = (await liqRes.json()) as any;
+  assert(liqRes.status === 200, `Vector h: Manager liquidation succeeds (actual: ${liqRes.status})`);
+  assert(liqData.success === true, 'Vector h: Response indicates success');
+  assert(liqData.sale_amount === 5000, `Vector h: Sale amount recorded (actual: ${liqData.sale_amount})`);
+
+  // Vector h2: Item is now LIQUIDATED
+  const liquidatedItem = db.prepare("SELECT * FROM items WHERE id = ?").get(scrapItem.id) as any;
+  assert(liquidatedItem.item_status === 'LIQUIDATED', `Vector h2: Item status = LIQUIDATED (actual: ${liquidatedItem.item_status})`);
+
+  // Vector h3: Audit log records liquidation
+  const liqAudit = db.prepare("SELECT * FROM audit_logs WHERE action = 'SCRAP_LIQUIDATED' AND entity_id = ?").get(scrapItem.id) as any;
+  assert(liqAudit !== undefined, 'Vector h3: SCRAP_LIQUIDATED audit log entry exists');
+  if (liqAudit) {
+    assert(liqAudit.user_id === mgrScrapUserId, `Vector h3: Audit records manager actor (actual: ${liqAudit.user_id})`);
+    const newVals = JSON.parse(liqAudit.new_values || '{}');
+    assert(newVals.sale_amount === 5000, `Vector h3: Audit records sale_amount (actual: ${newVals.sale_amount})`);
+    assert(newVals.buyer_name === 'Scrap Buyer Co.', `Vector h3: Audit records buyer_name (actual: ${newVals.buyer_name})`);
+  }
+
+  // Vector i: Re-RTV of same item → 422 (already rejected)
+  const reRtvRes = await fetch(`${baseUrl}/api/procurement/rtv/${rtvId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${admScrapToken}` },
+    body: JSON.stringify({ reason: 'Attempt re-reject' })
+  });
+  assert(reRtvRes.status === 422, `Vector i: Re-reject of already-rejected RTV → 422 (actual: ${reRtvRes.status})`);
+
+  // Vector j: Liquidation of already-liquidated item → 422
+  const reLiqRes = await fetch(`${baseUrl}/api/inventory/scrap/liquidate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${mgrScrapToken}` },
+    body: JSON.stringify({ item_id: scrapItem.id, sale_amount: 1000 })
+  });
+  assert(reLiqRes.status === 422, `Vector j: Re-liquidation of LIQUIDATED item → 422 (actual: ${reLiqRes.status})`);
+
+  // Vector k (FR-010.4 / Vector e): Scrap transition blocked while item reserved by repair ticket (409 UNTIL_REPAIRS_SETTLE)
+  const reservedTestItem = db.prepare(
+    "SELECT * FROM items WHERE deleted_at IS NULL AND stock_quantity > 0 AND (item_status IS NULL OR item_status = 'ACTIVE') AND id != ? LIMIT 1"
+  ).get(scrapItem.id) as any;
+  assert(reservedTestItem !== undefined, 'Vector k1: Reserved test fixture item available');
+
+  // Create an active repair ticket reserving this item
+  const scrapCust = db.prepare("SELECT id FROM customers LIMIT 1").get() as any;
+  assert(scrapCust !== undefined, 'Vector k0: Customer fixture available');
+  const resTicketId = `ticket-res-${uuidv4().substring(0, 8)}`;
+  db.prepare(
+    `INSERT INTO repair_tickets (
+      id, store_id, ticket_number, customer_id, device_brand, device_model, reported_defects,
+      status, priority, estimated_cost, release_otp
+    ) VALUES (?, ?, ?, ?, 'Apple', 'iPhone 13', 'Screen issue',
+      'IN_REPAIR', 'NORMAL', 1500, '9999')`
+  ).run(resTicketId, defaultStore.id, `TICK-RES-${Date.now().toString().slice(-4)}`, scrapCust.id);
+
+  // Insert reserved consumed part in repair_consumed_parts
+  const rcpResId = `rcp-res-${uuidv4().substring(0, 8)}`;
+  db.prepare(
+    `INSERT INTO repair_consumed_parts (id, ticket_id, item_id, part_name, cost_price, selling_price, is_reserved)
+     VALUES (?, ?, ?, 'Reserved Part', 500, 1000, 1)`
+  ).run(rcpResId, resTicketId, reservedTestItem.id);
+
+  // Mark reserved_quantity on item
+  db.prepare("UPDATE items SET reserved_quantity = 1 WHERE id = ?").run(reservedTestItem.id);
+
+  // Create a pending supplier return for this reserved item
+  const reservedRtvId = `rtv-res-${uuidv4().substring(0, 8)}`;
+  db.prepare(
+    `INSERT INTO supplier_returns (id, store_id, item_id, supplier_name, reason, status)
+     VALUES (?, ?, ?, 'Reserved Supplier', 'Part defective in repair testing', 'PENDING')`
+  ).run(reservedRtvId, defaultStore.id, reservedTestItem.id);
+
+  // Attempt RTV reject while item is reserved → strictly rejected with HTTP 409 UNTIL_REPAIRS_SETTLE
+  const reservedRejectRes = await fetch(`${baseUrl}/api/procurement/rtv/${reservedRtvId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${admScrapToken}` },
+    body: JSON.stringify({ reason: 'Vendor rejects return for reserved part' })
+  });
+  const reservedRejectData = (await reservedRejectRes.json()) as any;
+  assert(reservedRejectRes.status === 409, `Vector k2: Reserved item RTV reject blocked with 409 (actual: ${reservedRejectRes.status})`);
+  assert(reservedRejectData.code === 'UNTIL_REPAIRS_SETTLE', `Vector k3: Error code = UNTIL_REPAIRS_SETTLE (actual: ${reservedRejectData.code})`);
+
+  // Verify item status remains unchanged (NOT DEFECTIVE_SCRAP)
+  const itemAfterBlocked = db.prepare("SELECT * FROM items WHERE id = ?").get(reservedTestItem.id) as any;
+  assert(itemAfterBlocked.item_status !== 'DEFECTIVE_SCRAP', `Vector k4: Item NOT transitioned to DEFECTIVE_SCRAP while reserved (actual: ${itemAfterBlocked.item_status})`);
+
+  // Settle repairs: unreserve part in repair_consumed_parts, cancel ticket, clear items.reserved_quantity
+  db.prepare("UPDATE repair_consumed_parts SET is_reserved = 3 WHERE id = ?").run(rcpResId);
+  db.prepare("UPDATE repair_tickets SET status = 'CANCELLED' WHERE id = ?").run(resTicketId);
+  db.prepare("UPDATE items SET reserved_quantity = 0 WHERE id = ?").run(reservedTestItem.id);
+
+  // Retry RTV reject after repair settlement → succeeds with HTTP 200
+  const settledRejectRes = await fetch(`${baseUrl}/api/procurement/rtv/${reservedRtvId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${admScrapToken}` },
+    body: JSON.stringify({ reason: 'Vendor rejects return after repairs settled' })
+  });
+  const settledRejectData = (await settledRejectRes.json()) as any;
+  assert(settledRejectRes.status === 200, `Vector k5: RTV reject succeeds after repair settlement (actual: ${settledRejectRes.status})`);
+  assert(settledRejectData.success === true, 'Vector k6: Response indicates success after settlement');
+
+  const settledItem = db.prepare("SELECT * FROM items WHERE id = ?").get(reservedTestItem.id) as any;
+  assert(settledItem.item_status === 'DEFECTIVE_SCRAP', `Vector k7: Item is now DEFECTIVE_SCRAP after settlement (actual: ${settledItem.item_status})`);
+
+  console.log('[Suite 75 Complete: RTV Rejection + DEFECTIVE_SCRAP + Liquidation]');
+
   // Close ephemeral test server
   testServer.close();
 }
@@ -2099,10 +2777,23 @@ async function runExtendedSuites() {
 async function runBackupTest() {
   await runExtendedSuites();
 
+  // =========================================================================
+  // TEST 76: Test-Run Backup Isolation & Catalogue Hygiene (NFR-004)
+  // =========================================================================
+  console.log('\n[Test Suite 76: Test-Run Backup Isolation & Catalogue Hygiene (NFR-004)]');
+  assert(process.env.NODE_ENV === 'test', 'Vector 1a: Test process runs with NODE_ENV === test');
+  assert(getBackupDir() === TEST_SCRATCH_DIR, 'Vector 1b: Active backup directory redirects to test_scratch');
+
   const backup = await createDatabaseBackup('TestRunner');
-  assert(backup.sizeBytes > 0, `SQLite online backup created (${backup.sizeBytes} bytes): ${backup.filename}`);
-  const backups = listBackups();
-  assert(backups.length > 0, `Backup catalogue lists ${backups.length} valid backups`);
+  assert(backup.sizeBytes > 0, `Vector 2a: SQLite online backup created (${backup.sizeBytes} bytes): ${backup.filename}`);
+  assert(backup.path.includes('test_scratch'), 'Vector 2b: Backup written to isolated test_scratch directory');
+  assert(fs.existsSync(backup.path), 'Vector 2c: Backup file physically exists in test_scratch');
+
+  const prodBackups = listProductionBackups();
+  assert(prodBackups.length === 0, 'Vector 3: Production backup catalogue remains unpolluted (0 backups in production catalogue)');
+
+  cleanTestBackups();
+  assert(!fs.existsSync(TEST_SCRATCH_DIR), 'Vector 4: Ephemeral test_scratch directory successfully cleaned up');
 
   console.log(`\n==============================================`);
   console.log(`🏁 AUTOMATED TEST RESULTS: ${passed} PASSED, ${failed} FAILED`);

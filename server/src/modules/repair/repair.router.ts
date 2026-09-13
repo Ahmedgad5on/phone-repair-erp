@@ -10,6 +10,7 @@ import { ReceiptService } from '../../services/receipt.service';
 import { logAudit } from '../../services/audit.service';
 import { RepairRepository } from '../../repositories/repair.repository';
 import { SmartPricingEngine } from '../../services/smart-pricing.service';
+import { requireAuth, requireRole, AuthenticatedRequest } from '../../middleware/auth';
 import {
   validateStatusTransition,
   checkSlaEscalations,
@@ -17,7 +18,8 @@ import {
   ensureDefaultTemplates,
   reservePartsForTicket,
   reconcileDeliveredPartsForTicket,
-  releaseReservedPartsForTicket
+  releaseReservedPartsForTicket,
+  calculateWarrantyForTicket
 } from './repair.service';
 
 export const repairRouter = Router();
@@ -92,8 +94,35 @@ repairRouter.post('/tickets', (req: Request, res: Response) => {
     customer_id, customer_name, customer_phone,
     assigned_tech_id, device_brand, device_model, imei_sn,
     passcode, pattern_code, physical_condition, checklist_json,
-    reported_defects, intake_media_url, priority, estimated_cost, labor_charge
+    reported_defects, intake_media_url, priority, estimated_cost, labor_charge,
+    parent_ticket_id, is_warranty_repair
   } = req.body;
+
+  let isWarranty = is_warranty_repair ? 1 : 0;
+  if (parent_ticket_id) {
+    const parentTicket = db.prepare('SELECT * FROM repair_tickets WHERE id = ?').get(parent_ticket_id) as any;
+    if (!parentTicket) {
+      return res.status(404).json({ error: 'Parent repair ticket not found', code: 'PARENT_TICKET_NOT_FOUND' });
+    }
+    isWarranty = 1;
+
+    // Enforce warranty claim acceptance gate (DEC-041, FR-007.2): reject after expiry, HTTP 422
+    if (!parentTicket.warranty_expiry_date) {
+      return res.status(422).json({
+        error: 'WARRANTY_RECORD_INCOMPLETE',
+        message: 'Parent ticket has no warranty expiry date — warranty record incomplete',
+        code: 'WARRANTY_RECORD_INCOMPLETE'
+      });
+    }
+    const parentExpiryMs = new Date(parentTicket.warranty_expiry_date).getTime();
+    if (Date.now() > parentExpiryMs) {
+      return res.status(422).json({
+        error: 'WARRANTY_EXPIRED',
+        message: 'Warranty claim rejected: original expiry date has passed',
+        code: 'WARRANTY_EXPIRED'
+      });
+    }
+  }
 
   const store = db.prepare('SELECT * FROM stores LIMIT 1').get() as any;
 
@@ -131,14 +160,15 @@ repairRouter.post('/tickets', (req: Request, res: Response) => {
       device_brand, device_model, imei_sn, passcode, pattern_code,
       physical_condition, checklist_json, reported_defects, intake_media_url,
       status, priority, estimated_cost, labor_charge, parts_cost, tech_commission,
-      sla_deadline, release_otp, sla_started_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'INTAKE', ?, ?, ?, 0.0, 0.0, ?, ?, CURRENT_TIMESTAMP)
+      sla_deadline, release_otp, sla_started_at, parent_ticket_id, is_warranty_repair
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'INTAKE', ?, ?, ?, 0.0, 0.0, ?, ?, CURRENT_TIMESTAMP, ?, ?)
   `).run(
     id, ticketNumber, store.id, custId, assigned_tech_id || null,
     device_brand, device_model, imei_sn || '', passcode || '', pattern_code || '',
     physical_condition || '', typeof checklist_json === 'object' ? JSON.stringify(checklist_json) : checklist_json || '{}',
     reported_defects, intake_media_url || '', priority || 'NORMAL',
-    estimated_cost || 0.0, labor_charge || 0.0, slaDeadline, releaseOtp
+    estimated_cost || 0.0, labor_charge || 0.0, slaDeadline, releaseOtp,
+    parent_ticket_id || null, isWarranty
   );
 
   const created = db.prepare(`
@@ -198,7 +228,7 @@ repairRouter.post('/tickets', (req: Request, res: Response) => {
 });
 
 // 3. Update Ticket Status & Transitions with State Machine Validation & QA Checklist Enforcement
-repairRouter.patch(['/tickets/:id/status', '/:id/status'], (req: Request, res: Response) => {
+repairRouter.patch(['/tickets/:id/status', '/:id/status'], requireAuth, (req: Request, res: Response) => {
   const { status, tat_minutes, qa_checklist } = req.body;
   if (!status) return res.status(400).json({ error: 'Status is required' });
 
@@ -240,6 +270,67 @@ repairRouter.patch(['/tickets/:id/status', '/:id/status'], (req: Request, res: R
     reconcileDeliveredPartsForTicket(ticket.id);
     WhatsAppService.scheduleGoogleReviewPrompt(store.id, ticket.customer_phone, ticket.customer_name, store.google_maps_url);
     db.prepare('UPDATE customers SET total_spent = total_spent + ? WHERE id = ?').run(ticket.estimated_cost, ticket.customer_id);
+
+    // Calculate warranty duration and expiry date (DEC-041 / DEC-032 / FR-007)
+    const warranty = calculateWarrantyForTicket(ticket.id, new Date(now));
+    db.prepare(`
+      UPDATE repair_tickets
+      SET warranty_duration_days = ?,
+          warranty_expiry_date = ?
+      WHERE id = ?
+    `).run(warranty.durationDays, warranty.expiryDate, ticket.id);
+
+    // FR-009: Warranty Parts Expense Tracking (DEC-031)
+    if (ticket.is_warranty_repair) {
+      // Sum cost of parts consumed on this ticket
+      const partsCost = db.prepare(`
+        SELECT COALESCE(SUM(cp.cost_price), 0) as total_cost
+        FROM repair_consumed_parts cp
+        WHERE cp.ticket_id = ?
+      `).get(ticket.id) as { total_cost: number };
+
+      const costAmount = partsCost.total_cost || 0;
+
+      if (costAmount > 0) {
+        // Record warranty cost on ticket
+        db.prepare('UPDATE repair_tickets SET warranty_cost_amount = ? WHERE id = ?').run(costAmount, ticket.id);
+
+        // Post journal entry: debit acc-5040 (Warranty Expense), credit acc-1040 (Spare Parts Inventory)
+        const maxEntry = db.prepare('SELECT COALESCE(MAX(entry_number), 1000) as maxNum FROM journal_entries').get() as { maxNum: number };
+        const entryNumber = maxEntry.maxNum + 1;
+        const entryId = `je-${uuidv4().substring(0, 8)}`;
+        const actorId = (req as any).user?.userId;
+
+        const expenseTx = db.transaction(() => {
+          db.prepare(`
+            INSERT INTO journal_entries (id, entry_number, description, reference_type, reference_id, created_by_user_id, status)
+            VALUES (?, ?, ?, 'REPAIR_TICKET', ?, ?, 'POSTED')
+          `).run(entryId, entryNumber, `Warranty parts expense for ticket ${ticket.ticket_number}`, ticket.id, actorId);
+
+          // Debit: acc-5040 (Warranty Parts Expense)
+          db.prepare(`
+            INSERT INTO journal_entry_lines (id, entry_id, account_id, debit, credit, memo)
+            VALUES (?, ?, 'acc-5040', ?, 0, ?)
+          `).run(`jl-${uuidv4().substring(0, 8)}`, entryId, costAmount, `Warranty parts: ${ticket.ticket_number}`);
+
+          // Credit: acc-1040 (Spare Parts Inventory)
+          db.prepare(`
+            INSERT INTO journal_entry_lines (id, entry_id, account_id, debit, credit, memo)
+            VALUES (?, ?, 'acc-1040', 0, ?, ?)
+          `).run(`jl-${uuidv4().substring(0, 8)}`, entryId, costAmount, `Inventory reduction: ${ticket.ticket_number}`);
+        });
+        expenseTx();
+
+        logAudit({
+          action: 'WARRANTY_EXPENSE_POSTED',
+          userId: actorId,
+          entityType: 'REPAIR_TICKET',
+          entityId: ticket.id,
+          newValues: { costAmount, entryId, debit: 'acc-5040', credit: 'acc-1040' },
+          ipAddress: req.ip
+        });
+      }
+    }
   } else if (upperStatus === 'CANCELLED') {
     releaseReservedPartsForTicket(ticket.id);
   }
@@ -803,21 +894,33 @@ repairRouter.post('/tickets/:id/warranty-cert', (req: Request, res: Response) =>
   const certNumber = maxCert.maxNum + 1;
   const id = `wc-${uuidv4().substring(0, 8)}`;
 
+  // Calculate dynamic warranty terms per DEC-041 / DEC-032
+  const warranty = calculateWarrantyForTicket(ticket.id, new Date());
   const startDate = new Date();
-  const endDate = new Date(startDate.getTime() + 30 * 24 * 60 * 60 * 1000); // 30-day warranty
+  const endDate = new Date(warranty.expiryDate);
 
-  const terms = `30-Day Limited Repair Warranty on replaced parts and labor. Warranty void if liquid damage, accidental drops, or unauthorized opening detected.`;
+  const terms = `${warranty.durationDays}-Day Limited Repair Warranty on replaced parts (${warranty.category}) and labor. Warranty void if liquid damage, accidental drops, or unauthorized opening detected.`;
 
   db.prepare(`
     INSERT INTO warranty_certificates (
       id, cert_number, ticket_id, customer_name, customer_phone,
-      device_model, imei_sn, warranty_terms, start_date, end_date, status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
+      device_model, imei_sn, warranty_terms, start_date, end_date, status,
+      warranty_days, warranty_type
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)
   `).run(
     id, certNumber, ticket.id, ticket.customer_name, ticket.customer_phone,
     `${ticket.device_brand} ${ticket.device_model}`, ticket.imei_sn || 'N/A',
-    terms, startDate.toISOString(), endDate.toISOString()
+    terms, startDate.toISOString(), endDate.toISOString(),
+    warranty.durationDays, warranty.category
   );
+
+  // Also sync ticket columns
+  db.prepare(`
+    UPDATE repair_tickets
+    SET warranty_duration_days = ?,
+        warranty_expiry_date = ?
+    WHERE id = ?
+  `).run(warranty.durationDays, warranty.expiryDate, ticket.id);
 
   const created = db.prepare('SELECT * FROM warranty_certificates WHERE id = ?').get(id);
   res.status(201).json(created);
@@ -1203,3 +1306,127 @@ repairRouter.post('/quote-calculator', (req: Request, res: Response) => {
 
   res.json(quote);
 });
+
+// ==========================================
+// 23. Void Warranty — RBAC + Mandatory Photo Evidence (DEC-033, DEC-042, FR-008)
+// ==========================================
+const VOID_EVIDENCE_DIR = path.resolve(process.cwd(), 'uploads/warranty-evidence');
+const ALLOWED_MIME = ['image/jpeg', 'image/png'];
+const MAX_EVIDENCE_SIZE = 5 * 1024 * 1024; // 5MB
+
+repairRouter.post('/tickets/:id/void-warranty', requireAuth, requireRole(['Manager', 'Admin']), (req: AuthenticatedRequest, res: Response) => {
+  const { reason, evidence_file, evidence_base64 } = req.body;
+  const ticketId = req.params.id;
+
+  if (!reason || !String(reason).trim()) {
+    return res.status(400).json({ error: 'reason is required', code: 'PHOTO_EVIDENCE_REQUIRED' });
+  }
+
+  const ticket = db.prepare('SELECT * FROM repair_tickets WHERE id = ? AND deleted_at IS NULL').get(ticketId) as any;
+  if (!ticket) {
+    return res.status(404).json({ error: 'Ticket not found', code: 'TICKET_NOT_FOUND' });
+  }
+
+  // Determine evidence source: base64 inline or file path
+  let evidenceBuffer: Buffer;
+  let ext = 'jpg';
+
+  if (evidence_base64) {
+    const match = evidence_base64.match(/^data:image\/(jpeg|png);base64,([\s\S]+)$/);
+    if (!match) {
+      return res.status(400).json({ error: 'Invalid base64 image data', code: 'EVIDENCE_FORMAT_INVALID' });
+    }
+    ext = match[1].toLowerCase();
+    if (ext === 'jpg') ext = 'jpeg';
+    const mime = `image/${ext}`;
+    if (!ALLOWED_MIME.includes(mime)) {
+      return res.status(400).json({ error: `MIME type ${mime} not allowed. Allowed: ${ALLOWED_MIME.join(', ')}`, code: 'EVIDENCE_FORMAT_INVALID' });
+    }
+    evidenceBuffer = Buffer.from(match[2], 'base64');
+  } else if (evidence_file) {
+    const resolvedFile = path.resolve(evidence_file);
+    const allowedBase = path.resolve(process.cwd(), 'uploads');
+    if (!resolvedFile.startsWith(allowedBase)) {
+      return res.status(400).json({ error: 'Evidence file path must be within uploads directory', code: 'EVIDENCE_PATH_INVALID' });
+    }
+    if (!fs.existsSync(resolvedFile)) {
+      return res.status(400).json({ error: 'Evidence file not found on disk', code: 'PHOTO_EVIDENCE_REQUIRED' });
+    }
+    evidenceBuffer = fs.readFileSync(resolvedFile);
+    ext = path.extname(resolvedFile).slice(1) || 'jpg';
+    if (ext === 'jpg') ext = 'jpeg';
+    const mime = `image/${ext}`;
+    if (!ALLOWED_MIME.includes(mime)) {
+      return res.status(400).json({ error: `MIME type ${mime} not allowed. Allowed: ${ALLOWED_MIME.join(', ')}`, code: 'EVIDENCE_FORMAT_INVALID' });
+    }
+  } else {
+    return res.status(400).json({ error: 'Missing evidence_file or evidence_base64', code: 'PHOTO_EVIDENCE_REQUIRED' });
+  }
+
+  if (evidenceBuffer.length > MAX_EVIDENCE_SIZE) {
+    return res.status(400).json({ error: `Evidence size ${evidenceBuffer.length} exceeds 5MB limit`, code: 'EVIDENCE_TOO_LARGE' });
+  }
+
+  // Save evidence file
+  if (!fs.existsSync(VOID_EVIDENCE_DIR)) {
+    fs.mkdirSync(VOID_EVIDENCE_DIR, { recursive: true });
+  }
+  const timestamp = Date.now();
+  const filename = `${ticketId}-${timestamp}.${ext}`;
+  const filepath = path.join(VOID_EVIDENCE_DIR, filename);
+
+  const evidenceHash = crypto.createHash('sha256').update(evidenceBuffer).digest('hex');
+  const managerId = req.user!.userId;
+
+  try {
+    fs.writeFileSync(filepath, evidenceBuffer);
+
+    // Update ticket
+    db.prepare(`
+      UPDATE repair_tickets
+      SET warranty_status = 'VOIDED',
+          warranty_void_reason = ?,
+          warranty_void_evidence_path = ?,
+          warranty_void_evidence_hash = ?,
+          warranty_void_approved_by = ?,
+          warranty_void_approved_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(reason, `warranty-evidence/${filename}`, evidenceHash, managerId, ticketId);
+  } catch (err) {
+    if (fs.existsSync(filepath)) fs.unlinkSync(filepath);
+    throw err;
+  }
+
+  // Synchronous audit log
+  logAudit({
+    action: 'WARRANTY_VOIDED',
+    entityType: 'REPAIR_TICKET',
+    entityId: ticketId,
+    userId: managerId,
+    newValues: {
+      reason,
+      evidencePath: `warranty-evidence/${filename}`,
+      evidenceHash,
+      approvedBy: managerId
+    },
+    ipAddress: req.ip
+  });
+
+  res.json({
+    success: true,
+    ticket_id: ticketId,
+    warranty_status: 'VOIDED',
+    evidence_hash: evidenceHash,
+    approved_by: managerId
+  });
+});
+
+// ==========================================
+// 24. Warranty Parts Expense Tracking (DEC-031, FR-009) — hook into DELIVERED transition
+// ==========================================
+// This logic is integrated into the status transition handler above (line ~267-280).
+// When status = DELIVERED and is_warranty_repair = 1:
+//   1. Record warranty_cost_amount from consumed parts
+//   2. Post journal entry: debit acc-5040, credit acc-1040
+//   3. Customer invoice total remains 0 piastres
+// See the DELIVERED branch in the PATCH /tickets/:id/status handler.

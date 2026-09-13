@@ -358,3 +358,136 @@ export function ensureDefaultTemplates(): void {
 
 // Initialize templates on module load
 ensureDefaultTemplates();
+
+// =========================================================================
+// Warranty Duration Matrix, Window Inheritance & 3-Day Grace Policy (DEC-041, DEC-032, FR-007)
+// =========================================================================
+
+export interface WarrantyCalculationResult {
+  durationDays: number;
+  expiryDate: string;
+  category: string;
+  isInherited: boolean;
+  isGrace: boolean;
+}
+
+export function getCategoryWarrantyDays(category: string): number {
+  const upperCat = (category || '').toUpperCase().trim();
+  try {
+    const tier = db.prepare('SELECT warranty_days FROM warranty_tiers WHERE service_category = ? AND is_active = 1').get(upperCat) as { warranty_days: number } | undefined;
+    if (tier && typeof tier.warranty_days === 'number') {
+      return tier.warranty_days;
+    }
+  } catch {}
+
+  // Fallback defaults per DEC-041
+  if (upperCat === 'SCREEN' || upperCat === 'DISPLAY') return 90;
+  if (upperCat === 'BATTERY') return 60;
+  return 30; // MOTHERBOARD, LABOR, OTHER
+}
+
+export function detectTicketCategory(ticketId: string): string {
+  // Check parts consumed on this ticket
+  try {
+    const parts = db.prepare(`
+      SELECT p.*, i.name as item_name, i.category as item_cat
+      FROM repair_consumed_parts p
+      LEFT JOIN items i ON p.item_id = i.id
+      WHERE p.ticket_id = ?
+    `).all(ticketId) as { item_name?: string; item_cat?: string }[];
+
+    for (const part of parts) {
+      const name = (part.item_name || '').toUpperCase();
+      const cat = (part.item_cat || '').toUpperCase();
+      if (cat === 'SCREEN' || cat === 'DISPLAY' || name.includes('SCREEN') || name.includes('DISPLAY') || name.includes('OLED') || name.includes('LCD') || name.includes('INCELL')) {
+        return 'SCREEN';
+      }
+    }
+
+    for (const part of parts) {
+      const name = (part.item_name || '').toUpperCase();
+      const cat = (part.item_cat || '').toUpperCase();
+      if (cat === 'BATTERY' || name.includes('BATTERY') || name.includes('BATT')) {
+        return 'BATTERY';
+      }
+    }
+
+    for (const part of parts) {
+      const name = (part.item_name || '').toUpperCase();
+      const cat = (part.item_cat || '').toUpperCase();
+      if (cat === 'MOTHERBOARD' || name.includes('MOTHERBOARD') || name.includes('BOARD') || name.includes('PORT') || name.includes('FLEX') || name.includes('IC')) {
+        return 'MOTHERBOARD';
+      }
+    }
+  } catch {}
+
+  try {
+    const ticket = db.prepare('SELECT reported_defects, device_model FROM repair_tickets WHERE id = ?').get(ticketId) as any;
+    if (ticket) {
+      const defect = (ticket.reported_defects || '').toUpperCase();
+      if (defect.includes('SCREEN') || defect.includes('DISPLAY') || defect.includes('OLED') || defect.includes('LCD') || defect.includes('شاشة') || defect.includes('باغة')) {
+        return 'SCREEN';
+      }
+      if (defect.includes('BATTERY') || defect.includes('BATT') || defect.includes('بطارية')) {
+        return 'BATTERY';
+      }
+      if (defect.includes('BOARD') || defect.includes('PORT') || defect.includes('IC') || defect.includes('سوكت') || defect.includes('شحن') || defect.includes('ماذر')) {
+        return 'MOTHERBOARD';
+      }
+    }
+  } catch {}
+
+  return 'OTHER';
+}
+
+export function calculateWarrantyForTicket(ticketId: string, deliveryDate: Date = new Date()): WarrantyCalculationResult {
+  const ticket = db.prepare('SELECT * FROM repair_tickets WHERE id = ?').get(ticketId) as any;
+  if (!ticket) {
+    throw new Error(`Repair ticket ${ticketId} not found`);
+  }
+
+  const deliveryMs = deliveryDate.getTime();
+
+  // Case 1: Warranty claim / rework repair ticket with parent ticket (DEC-032 / DEC-041)
+  if (ticket.is_warranty_repair && ticket.parent_ticket_id) {
+    const parent = db.prepare('SELECT * FROM repair_tickets WHERE id = ?').get(ticket.parent_ticket_id) as any;
+    if (parent && parent.warranty_expiry_date) {
+      const parentExpiryMs = new Date(parent.warranty_expiry_date).getTime();
+      const remainingMs = parentExpiryMs - deliveryMs;
+      const remainingDays = Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
+
+      // 3-Day testing grace policy (DEC-041 / FR-007.3): if remaining days < 3, grant exactly 3 days from delivery
+      if (remainingDays < 3) {
+        const graceExpiryDate = new Date(deliveryMs + 3 * 24 * 60 * 60 * 1000).toISOString();
+        return {
+          durationDays: 3,
+          expiryDate: graceExpiryDate,
+          category: 'INHERITED_GRACE',
+          isInherited: true,
+          isGrace: true
+        };
+      }
+
+      return {
+        durationDays: remainingDays,
+        expiryDate: new Date(parentExpiryMs).toISOString(),
+        category: 'INHERITED',
+        isInherited: true,
+        isGrace: false
+      };
+    }
+  }
+
+  // Case 2: Standard initial repair ticket
+  const category = detectTicketCategory(ticketId);
+  const durationDays = getCategoryWarrantyDays(category);
+  const expiryDate = new Date(deliveryMs + durationDays * 24 * 60 * 60 * 1000).toISOString();
+
+  return {
+    durationDays,
+    expiryDate,
+    category,
+    isInherited: false,
+    isGrace: false
+  };
+}

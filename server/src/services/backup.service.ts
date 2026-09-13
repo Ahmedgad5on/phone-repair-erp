@@ -3,10 +3,27 @@ import path from 'path';
 import db from '../db/database';
 import { logAudit } from './audit.service';
 
-const BACKUP_DIR = path.resolve(process.cwd(), 'backups');
+export const BASE_BACKUP_DIR = path.resolve(process.cwd(), 'backups');
+export const TEST_SCRATCH_DIR = path.resolve(BASE_BACKUP_DIR, 'test_scratch');
 
-if (!fs.existsSync(BACKUP_DIR)) {
-  fs.mkdirSync(BACKUP_DIR, { recursive: true });
+if (!fs.existsSync(BASE_BACKUP_DIR)) {
+  fs.mkdirSync(BASE_BACKUP_DIR, { recursive: true });
+}
+
+export function getBackupDir(): string {
+  if (process.env.NODE_ENV === 'test') {
+    if (!fs.existsSync(TEST_SCRATCH_DIR)) {
+      fs.mkdirSync(TEST_SCRATCH_DIR, { recursive: true });
+    }
+    return TEST_SCRATCH_DIR;
+  }
+  return BASE_BACKUP_DIR;
+}
+
+export function cleanTestBackups(): void {
+  if (fs.existsSync(TEST_SCRATCH_DIR)) {
+    fs.rmSync(TEST_SCRATCH_DIR, { recursive: true, force: true });
+  }
 }
 
 export interface BackupInfo {
@@ -17,9 +34,10 @@ export interface BackupInfo {
 }
 
 export async function createDatabaseBackup(requestedBy: string = 'system'): Promise<BackupInfo> {
+  const targetDir = getBackupDir();
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const filename = `erp-backup-${timestamp}.db`;
-  const destPath = path.join(BACKUP_DIR, filename);
+  const destPath = path.join(targetDir, filename);
 
   await db.backup(destPath);
 
@@ -35,18 +53,19 @@ export async function createDatabaseBackup(requestedBy: string = 'system'): Prom
     action: 'BACKUP',
     entityType: 'DATABASE',
     entityId: filename,
-    newValues: { filename, sizeBytes: stats.size, requestedBy }
+    newValues: { filename, sizeBytes: stats.size, requestedBy, isTest: process.env.NODE_ENV === 'test' }
   });
 
   return info;
 }
 
-export function listBackups(): BackupInfo[] {
-  if (!fs.existsSync(BACKUP_DIR)) return [];
+export function listBackups(dir?: string): BackupInfo[] {
+  const targetDir = dir || getBackupDir();
+  if (!fs.existsSync(targetDir)) return [];
 
-  const files = fs.readdirSync(BACKUP_DIR).filter(f => f.endsWith('.db'));
+  const files = fs.readdirSync(targetDir).filter(f => f.endsWith('.db'));
   return files.map(filename => {
-    const filePath = path.join(BACKUP_DIR, filename);
+    const filePath = path.join(targetDir, filename);
     const stats = fs.statSync(filePath);
     return {
       filename,
@@ -57,8 +76,16 @@ export function listBackups(): BackupInfo[] {
   }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
+export function listProductionBackups(): BackupInfo[] {
+  return listBackups(BASE_BACKUP_DIR);
+}
+
 export function restoreDatabaseBackup(filename: string, requestedBy: string = 'admin'): boolean {
-  const backupPath = path.join(BACKUP_DIR, path.basename(filename));
+  const targetDir = getBackupDir();
+  let backupPath = path.join(targetDir, path.basename(filename));
+  if (!fs.existsSync(backupPath)) {
+    backupPath = path.join(BASE_BACKUP_DIR, path.basename(filename));
+  }
   if (!fs.existsSync(backupPath)) {
     throw new Error(`Backup file '${filename}' not found.`);
   }
@@ -78,9 +105,9 @@ export function restoreDatabaseBackup(filename: string, requestedBy: string = 'a
   return true;
 }
 
-// Auto-Backup to External USB Drive (Hardware Proposal 54)
+// Auto-Backup to External USB Drive (Hardware Proposal 54) + Option (a) Uploads Mirroring (W4)
 export async function backupToExternalDrive(targetDirPath?: string): Promise<BackupInfo> {
-  const destDir = targetDirPath || (process.platform === 'win32' ? 'E:\\ERP_Backups' : '/mnt/usb/backups');
+  const destDir = targetDirPath || (process.platform === 'win32' ? (process.env.USB_BACKUP_PATH || 'E:\\ERP_Backups') : (process.env.USB_BACKUP_PATH || '/mnt/usb/backups'));
   if (!fs.existsSync(destDir)) {
     fs.mkdirSync(destDir, { recursive: true });
   }
@@ -92,11 +119,20 @@ export async function backupToExternalDrive(targetDirPath?: string): Promise<Bac
   await db.backup(destPath);
   const stats = fs.statSync(destPath);
 
+  // W4 Option (a): uploads directory joins automated external USB mirroring
+  const uploadsDir = path.resolve(process.cwd(), 'uploads');
+  const targetUploadsDir = path.join(destDir, 'uploads');
+  let uploadsMirrored = false;
+  if (fs.existsSync(uploadsDir)) {
+    fs.cpSync(uploadsDir, targetUploadsDir, { recursive: true, force: true });
+    uploadsMirrored = true;
+  }
+
   logAudit({
     action: 'BACKUP_USB',
     entityType: 'DATABASE',
     entityId: filename,
-    newValues: { path: destPath, sizeBytes: stats.size }
+    newValues: { path: destPath, sizeBytes: stats.size, uploadsMirrored }
   });
 
   return {
