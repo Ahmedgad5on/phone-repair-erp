@@ -14,6 +14,7 @@ import { migration012 } from './012_add_po_approval_columns';
 import { migration013 } from './013_add_stocktake_freeze';
 import { migration014 } from './014_add_warranty_governance_columns';
 import { migration015 } from './015_add_defective_scrap_lifecycle';
+import { migration016 } from './016_profitability_and_collections';
 
 export type { Migration };
 
@@ -32,7 +33,8 @@ export const migrations: Migration[] = [
   migration012,
   migration013,
   migration014,
-  migration015
+  migration015,
+  migration016
 ];
 
 export default migrations;
