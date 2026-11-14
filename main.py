@@ -22,7 +22,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("thermal_lab")
 
-APP_USER_MODEL_ID = f"ProLab.SmartLabeler.App.{APP_VERSION}"
+APP_USER_MODEL_ID = "ProLab.SmartLabeler.App.1.0"
 
 
 def set_app_user_model_id(app_id: str = APP_USER_MODEL_ID) -> bool:

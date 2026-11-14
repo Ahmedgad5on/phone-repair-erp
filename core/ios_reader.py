@@ -433,28 +433,63 @@ def _find_nearest_apple_color(hex_str: str, lookup: Dict[str, str], threshold: f
     return None
 
 
+_APPLE_PART_COLORS_CACHE: Optional[Dict[str, str]] = None
+
+
+def load_apple_part_colors(json_path: Optional[str] = None) -> Dict[str, str]:
+    """Loads authoritative retail part number to color dictionary (e.g. MWJK2 -> Green)."""
+    global _APPLE_PART_COLORS_CACHE
+    if _APPLE_PART_COLORS_CACHE is not None and len(_APPLE_PART_COLORS_CACHE) > 0:
+        return _APPLE_PART_COLORS_CACHE
+
+    path = json_path or get_data_path("apple_part_colors.json")
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                _APPLE_PART_COLORS_CACHE = json.load(f)
+                return _APPLE_PART_COLORS_CACHE
+        except Exception as e:
+            logger.debug(f"Could not load apple_part_colors.json: {e}")
+
+    _APPLE_PART_COLORS_CACHE = {}
+    return _APPLE_PART_COLORS_CACHE
+
+
 def resolve_apple_color(
     raw_color: Optional[str],
     raw_enclosure: Optional[str] = None,
     color_map: Optional[Dict[str, str]] = None,
-    raw_housing: Optional[str] = None
+    raw_housing: Optional[str] = None,
+    model_number: Optional[str] = None,
+    part_number: Optional[str] = None,
+    product_type: Optional[str] = None
 ) -> str:
     """
-    Resolves Apple DeviceColor/DeviceEnclosureColor/HousingColor hex codes or string identifiers
-    into official human-readable marketing color names.
+    Resolves Apple DeviceColor/DeviceEnclosureColor/HousingColor/PartNumber into official marketing color.
+    Priority Ladder:
+    1. Authoritative Apple Retail Part Number / Model Number (e.g. MWJK2 -> Green).
+    2. Enclosure / Housing Color hex codes (exact match or Euclidean distance matching).
+    3. Known string marketing identifiers.
+    4. Numeric codes (1, 2, etc.) for older devices where front bezel equals back color.
     """
     lookup = color_map or BUILTIN_APPLE_COLORS
-    candidates = [raw_enclosure, raw_color, raw_housing]
+    part_colors = load_apple_part_colors()
 
-    # 1. First check if any candidate is a numeric code (e.g. '1', '#1', '2', '#2')
-    for cand in candidates:
-        if cand is not None:
-            c_str = str(cand).strip()
-            num_cand = c_str.lstrip("#").strip()
-            if num_cand in APPLE_NUMERIC_COLORS:
-                return APPLE_NUMERIC_COLORS[num_cand]
+    # 1. Authoritative Apple Part Number / Model Number Lookup (e.g. MWJK2 -> Green)
+    part_candidates = [model_number, part_number]
+    for p_cand in part_candidates:
+        if p_cand:
+            clean_part = str(p_cand).strip().split("/")[0].strip().upper()
+            if clean_part in part_colors:
+                return part_colors[clean_part]
+            if len(clean_part) >= 5 and clean_part[:5] in part_colors:
+                return part_colors[clean_part[:5]]
+            if len(clean_part) >= 4 and clean_part[:4] in part_colors:
+                return part_colors[clean_part[:4]]
 
-    # 2. Check exact hex matches in lookup (e.g. '#505e6b')
+    candidates = [raw_enclosure, raw_housing, raw_color]
+
+    # 2. Check exact hex matches in lookup for enclosure/housing/color (e.g. '#505e6b')
     for cand in candidates:
         if cand and str(cand).strip().startswith("#"):
             hex_clean = str(cand).strip().lower()
@@ -469,10 +504,10 @@ def resolve_apple_color(
                 return nearest
 
     # 4. Check known marketing string names (e.g. 'Natural Titanium', 'Midnight', 'desert_titanium')
-    for cand in candidates:
+    for cand in [raw_enclosure, raw_color, raw_housing]:
         if cand:
             s = str(cand).strip()
-            if not s or s.startswith("#"):
+            if not s or s.startswith("#") or s in APPLE_NUMERIC_COLORS:
                 continue
             clean_name = s.replace("_", " ").replace("-", " ").title()
             if "Product" in clean_name and "Red" in clean_name:
@@ -482,8 +517,18 @@ def resolve_apple_color(
                     return v
             return clean_name
 
-    # 5. Fallback: if candidate was an unrecognized hex code, return uppercase hex
-    for cand in candidates:
+    # 5. Check numeric codes (e.g. '1', '#1', '2', '#2')
+    # Note: On iPhones starting from iPhone X (iPhone10,3+), all devices have black front bezels
+    # where DeviceColor == 1. Numeric code is checked after part number.
+    for cand in [raw_enclosure, raw_color, raw_housing]:
+        if cand is not None:
+            c_str = str(cand).strip()
+            num_cand = c_str.lstrip("#").strip()
+            if num_cand in APPLE_NUMERIC_COLORS:
+                return APPLE_NUMERIC_COLORS[num_cand]
+
+    # 6. Fallback: if candidate was an unrecognized hex code, return uppercase hex
+    for cand in [raw_enclosure, raw_color, raw_housing]:
         if cand and str(cand).strip().startswith("#"):
             return str(cand).strip().upper()
 
@@ -652,13 +697,27 @@ def parse_ideviceinfo_xml(xml_bytes_or_str: Any) -> Optional[DeviceSpecs]:
         storage_bytes = 0
     storage = parse_ios_commercial_storage(storage_bytes)
 
+    model_num = plist.get("ModelNumber")
+    region_info = plist.get("RegionInfo")
+    part_number, _ = parse_apple_part_and_region(model_num, region_info)
+    sales_region = decode_apple_region(region_info)
+
     device_color = str(plist.get("DeviceColor") or "")
     enclosure_color = str(plist.get("DeviceEnclosureColor") or "")
     housing_color = str(plist.get("HousingColor") or "")
     back_glass_color = str(plist.get("BackGlassColor") or "")
     cover_glass_color = str(plist.get("CoverGlassColor") or "")
     raw_housing = housing_color or back_glass_color or cover_glass_color
-    color = resolve_apple_color(device_color, enclosure_color, colors, raw_housing=raw_housing)
+
+    color = resolve_apple_color(
+        raw_color=device_color,
+        raw_enclosure=enclosure_color,
+        color_map=colors,
+        raw_housing=raw_housing,
+        model_number=model_num,
+        part_number=part_number,
+        product_type=product_type
+    )
 
     os_version = f"iOS {plist.get('ProductVersion', '')}".strip()
     serial_number = str(plist.get("SerialNumber") or "")
@@ -680,6 +739,14 @@ def parse_ideviceinfo_xml(xml_bytes_or_str: Any) -> Optional[DeviceSpecs]:
                 color = tac_color
         except Exception:
             pass
+    elif color != "Unknown" and not color.startswith("#") and len(imei1) >= 8:
+        # Automatically learn verified retail color into TAC mapping
+        try:
+            from core.database import DatabaseManager
+            db = DatabaseManager()
+            db.learn_tac_color(imei1[:8], marketing_name, color)
+        except Exception:
+            pass
 
     imei2_val = plist.get("InternationalMobileEquipmentIdentity2")
     if imei2_val:
@@ -687,11 +754,6 @@ def parse_ideviceinfo_xml(xml_bytes_or_str: Any) -> Optional[DeviceSpecs]:
         imei2 = clean_imei2 if (len(clean_imei2) == 15 and validate_luhn(clean_imei2)) else clean_imei2
     else:
         imei2 = None
-
-    model_num = plist.get("ModelNumber")
-    region_info = plist.get("RegionInfo")
-    part_number, _ = parse_apple_part_and_region(model_num, region_info)
-    sales_region = decode_apple_region(region_info)
 
     return DeviceSpecs(
         connection_type="ios",
