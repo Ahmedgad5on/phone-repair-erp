@@ -32,8 +32,24 @@ class GitHubSyncSignals(QObject):
 class GitHubSyncManager:
     """Core Git command executor for two-way synchronization."""
 
+    @staticmethod
+    def _detect_repo_dir() -> str:
+        """Finds the absolute path to the Git repository under any execution context."""
+        candidates = [
+            Path(__file__).resolve().parent.parent if "__file__" in globals() else None,
+            Path(os.getcwd()).resolve(),
+            Path(sys.executable).parent / "label",
+            Path(sys.executable).parent,
+            Path.home() / "Desktop" / "label",
+            Path("C:/Users/Eng_Ahmed/Desktop/label"),
+        ]
+        for candidate in candidates:
+            if candidate and (candidate / ".git").is_dir():
+                return str(candidate)
+        return str(Path("C:/Users/Eng_Ahmed/Desktop/label").resolve())
+
     def __init__(self, repo_dir: Optional[str] = None, remote: str = "origin", branch: str = "main"):
-        self.repo_dir = str(Path(repo_dir or os.getcwd()).resolve())
+        self.repo_dir = str(Path(repo_dir).resolve()) if repo_dir else self._detect_repo_dir()
         self.remote = remote
         self.branch = branch
 

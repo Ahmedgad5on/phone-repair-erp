@@ -104,6 +104,7 @@ class MainWindow(QMainWindow):
         self._wire_events()
         self._init_telegram_bot()
         self._sync_initial_state()
+        self._init_github_sync()
 
     def _init_layout(self):
         central_widget = QWidget()
@@ -325,6 +326,27 @@ class MainWindow(QMainWindow):
         self.btn_license_status.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_license_status.clicked.connect(self._open_license_dialog)
         b_layout.addWidget(self.btn_license_status)
+
+        self.btn_github_sync = QPushButton("🔄 مزامنة GitHub (لحظية)")
+        self.btn_github_sync.setFixedHeight(28)
+        self.btn_github_sync.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_github_sync.setStyleSheet("""
+            QPushButton {
+                background-color: #121A28;
+                color: #60A5FA;
+                border: 1px solid #2563EB;
+                border-radius: 4px;
+                font-size: 11px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1E293B;
+                color: #93C5FD;
+                border-color: #3B82F6;
+            }
+        """)
+        self.btn_github_sync.clicked.connect(self._manual_github_sync)
+        b_layout.addWidget(self.btn_github_sync)
 
         self.btn_version_about = QPushButton(f"ℹ️ الإصدار {get_full_version()}")
         self.btn_version_about.setFixedHeight(24)
@@ -1302,7 +1324,51 @@ class MainWindow(QMainWindow):
         )
         self.right_panel.set_status_message(f"Calibration: {msg}", success=success)
 
+    # -----------------------------------------------------------------------
+    # GitHub Two-Way Synchronization
+    # -----------------------------------------------------------------------
+
+    def _init_github_sync(self):
+        """Starts background two-way synchronization with GitHub."""
+        try:
+            from core.github_sync import GitHubSyncWorker
+            self.github_sync_worker = GitHubSyncWorker(interval_seconds=60, parent=self)
+            self.github_sync_worker.signals.status_changed.connect(self._on_github_status_changed)
+            self.github_sync_worker.signals.sync_completed.connect(self._on_github_sync_completed)
+            self.github_sync_worker.start()
+        except Exception as e:
+            logger.warning("Could not initialize GitHub sync worker: %s", e)
+
+    def _manual_github_sync(self):
+        """Triggered when the user clicks the GitHub sync button in sidebar."""
+        self.btn_github_sync.setText("🔄 جاري المزامنة...")
+        self.btn_github_sync.setEnabled(False)
+        from PyQt6.QtCore import QTimer
+        if hasattr(self, "github_sync_worker") and self.github_sync_worker:
+            self.github_sync_worker.trigger_sync()
+        QTimer.singleShot(2000, lambda: self.btn_github_sync.setEnabled(True))
+
+    @pyqtSlot(str, str)
+    def _on_github_status_changed(self, code: str, text: str):
+        if hasattr(self, "btn_github_sync"):
+            if code == "SYNCED":
+                self.btn_github_sync.setText("✅ GitHub متزامن")
+                self.btn_github_sync.setStyleSheet("background-color: #06281E; color: #34D399; border: 1px solid #059669; font-size: 11px; font-weight: bold; border-radius: 4px;")
+            elif code == "SYNCING":
+                self.btn_github_sync.setText("🔄 جاري المزامنة...")
+                self.btn_github_sync.setStyleSheet("background-color: #1E1B4B; color: #A5B4FC; border: 1px solid #6366F1; font-size: 11px; font-weight: bold; border-radius: 4px;")
+            elif code == "ERROR":
+                self.btn_github_sync.setText("⚠️ تنبيه مزامنة GitHub")
+                self.btn_github_sync.setStyleSheet("background-color: #2D1515; color: #F87171; border: 1px solid #EF4444; font-size: 11px; font-weight: bold; border-radius: 4px;")
+
+    @pyqtSlot(bool, str)
+    def _on_github_sync_completed(self, success: bool, msg: str):
+        if hasattr(self, "right_panel") and self.right_panel:
+            self.right_panel.set_status_message(msg, success=success)
+
     def closeEvent(self, event):
+        if hasattr(self, "github_sync_worker") and self.github_sync_worker:
+            self.github_sync_worker.stop()
         if hasattr(self, "bot") and self.bot:
             self.bot.stop()
         if hasattr(self, "top_bar") and self.top_bar:

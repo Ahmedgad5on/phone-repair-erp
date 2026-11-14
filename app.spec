@@ -73,6 +73,7 @@ hiddenimports = [
     'core.pdf_exporter',
     'core.telegram_bot',
     'core.version',
+    'core.github_sync',
     'core.licensing',
     'core.licensing.client',
     'core.licensing.license_cache',
