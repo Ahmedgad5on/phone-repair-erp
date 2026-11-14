@@ -1,0 +1,109 @@
+--- a/core/shortcut_util.py
++++ b/core/shortcut_util.py
+@@ -120,7 +120,7 @@
+             creationflags=CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+             timeout=10,
+         )
+-        if res.returncode == 0 and lnk_path.exists():
++        if res.returncode == 0 and lnk_path.exists() and lnk_path.stat().st_size > 0:
+             logger.info("Successfully created desktop shortcut via PowerShell: %s", lnk_path)
+             return True
+         logger.warning("PowerShell shortcut script failed with return code %d: %s", res.returncode, res.stderr)
+@@ -151,7 +151,7 @@
+         if icon_path and icon_path.exists():
+             sc.IconLocation = f"{str(icon_path)},0"
+         sc.Description = description
+         sc.Save()
+-        if lnk_path.exists():
++        if lnk_path.exists() and lnk_path.stat().st_size > 0:
+             logger.info("Successfully created desktop shortcut via win32com: %s", lnk_path)
+             return True
+     except Exception as e:
+@@ -211,8 +211,15 @@
+         # Resolve target executable
+         if target_exe is None:
+             target_path = Path(os.path.realpath(sys.executable))
+         else:
+-            target_path = Path(os.path.realpath(target_exe))
++            target_str = str(target_exe).strip()
++            if not target_str:
++                logger.error("Target executable path cannot be empty or whitespace.")
++                return False
++            target_path = Path(os.path.realpath(target_str))
++
++        if not target_path.exists() or not target_path.is_file():
++            logger.error("Target executable does not exist or is not a file: %s", target_path)
++            return False
+ 
+         # Resolve working directory
+         if working_dir is None:
+
+--- a/assets/shortcut_util.py
++++ b/assets/shortcut_util.py
+@@ -4,6 +4,16 @@
+ """
+ from __future__ import annotations
+ 
+-from core.shortcut_util import create_desktop_shortcut, get_desktop_dir
++from core.shortcut_util import (
++    create_desktop_shortcut,
++    get_desktop_dir,
++    _create_via_powershell,
++    _create_via_win32com,
++)
+ 
+-__all__ = ["create_desktop_shortcut", "get_desktop_dir"]
++__all__ = [
++    "create_desktop_shortcut",
++    "get_desktop_dir",
++    "_create_via_powershell",
++    "_create_via_win32com",
++]
+
+--- a/assets/generate_icon.py
++++ b/assets/generate_icon.py
+@@ -22,6 +22,21 @@
+ 
+ from PIL import Image, ImageDraw
+ 
+ from core.shortcut_util import create_desktop_shortcut, get_desktop_dir
+ 
++__all__ = [
++    "generate_assets",
++    "create_desktop_shortcut",
++    "get_desktop_dir",
++    "render_master_brand_emblem",
++    "verify_ico_layers",
++    "verify_logo_png",
++    "REQUIRED_ICO_SIZES",
++    "ICO_SIZES",
++    "PNG_HEADER_SIZE",
++    "COLOR_MATTE_BLACK",
++    "COLOR_METALLIC_GOLD",
++    "main",
++]
++
+@@ -221,6 +236,7 @@
+     parser.add_argument("--output-dir", "-o", default=None, help="Target directory for output assets (default: ./assets)")
+     parser.add_argument("--verify", action="store_true", help="Perform verification on generated assets")
+     parser.add_argument("--shortcut", action="store_true", help="Create a desktop shortcut with generated icon")
++    parser.add_argument("--target-exe", default=None, help="Target executable path for desktop shortcut (default: sys.executable / main.py)")
+     args = parser.parse_args()
+ 
+@@ -241,10 +257,14 @@
+             print("[SUCCESS] All asset integrity checks passed.")
+ 
+         if args.shortcut:
+-            ok = create_desktop_shortcut(icon_path=ico_path)
++            ok = create_desktop_shortcut(
++                target_exe=args.target_exe,
++                icon_path=ico_path,
++            )
+             if ok:
+                 print("[SUCCESS] Desktop shortcut created successfully.")
+             else:
+-                print("[WARNING] Could not create desktop shortcut.")
++                print("[ERROR] Desktop shortcut creation failed.", file=sys.stderr)
++                return 1
+         return 0
+     except Exception as exc:

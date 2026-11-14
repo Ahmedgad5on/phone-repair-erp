@@ -1,0 +1,130 @@
+--- a/core/adb_reader.py
++++ b/core/adb_reader.py
+@@ -47,7 +47,7 @@
+ def sanitize_adb_output(raw_output: str) -> str:
+     """Strips transient daemon startup messages, banner noise, and version clashes."""
+-    if not raw_output:
++    if not raw_output or not isinstance(raw_output, str):
+         return ""
+     lines = raw_output.splitlines()
+     clean = []
+@@ -95,7 +95,10 @@
+ def parse_storage_from_df(df_output: str) -> str:
+     """
+     Parses 'adb shell df -k /data' or 'adb shell df /data'.
+     Handles standard Toybox, Busybox, and multiline wrapped outputs.
+     """
++    if not df_output or not isinstance(df_output, str):
++        return "Unknown"
++
+     clean = sanitize_adb_output(df_output)
+     total_kb: Optional[int] = None
+ 
+@@ -113,7 +116,7 @@
+ 
+     if not total_kb:
+         # Fallback for alternative dumpsys diskstats formats:
+-        match = re.search(r'(\d+)\s*K?\s*total', df_output, re.IGNORECASE)
++        match = re.search(r'(\d+)\s*K?\s*total', clean, re.IGNORECASE)
+         if match:
+             total_kb = int(match.group(1))
+ 
+@@ -154,7 +157,10 @@
+ def parse_ram_from_meminfo(meminfo_output: str) -> str:
+     """
+     Parses 'adb shell cat /proc/meminfo' extracting MemTotal.
+     """
++    if not meminfo_output or not isinstance(meminfo_output, str):
++        return "Unknown"
++    clean = sanitize_adb_output(meminfo_output)
+-    match = re.search(r'MemTotal:\s*(\d+)\s*kB', meminfo_output, re.IGNORECASE)
++    match = re.search(r'MemTotal:\s*(\d+)\s*kB', clean, re.IGNORECASE)
+     if not match:
+         return "Unknown"
+     try:
+         mem_kb = int(match.group(1))
+     except (ValueError, TypeError):
+         return "Unknown"
+     return parse_android_commercial_ram(mem_kb)
+@@ -250,7 +256,9 @@
+-def resolve_samsung_model(model_code: str) -> Optional[str]:
++def resolve_samsung_model(model_code: Optional[str]) -> Optional[str]:
+     """Resolves Samsung model code (e.g. SM-S928B) to marketing name."""
++    if not model_code or not isinstance(model_code, str):
++        return None
+     clean = model_code.strip().upper()
+     for pattern, name in SAMSUNG_PREFIX_RULES:
+         if re.match(pattern, clean):
+             return name
+     return None
+@@ -259,9 +267,14 @@
+-def resolve_marketing_name(model_code: str, manufacturer: str, marketname: str = "") -> Tuple[str, str]:
++def resolve_marketing_name(
++    model_code: Optional[str],
++    manufacturer: Optional[str] = "Android",
++    marketname: Optional[str] = ""
++) -> Tuple[str, str]:
+     """
+     Resolves commercial brand and marketing name from model code, manufacturer, and marketname.
+     Returns (brand, marketing_name).
+     """
+-    clean_mfr = manufacturer.strip().title() if manufacturer else "Android"
+-    clean_model = model_code.strip()
++    clean_mfr = str(manufacturer).strip().title() if manufacturer else "Android"
++    clean_model = str(model_code).strip() if model_code else ""
++    clean_market = str(marketname).strip() if marketname else ""
+ 
+     # 1. Use system marketname if explicitly defined and distinct from model code
+-    if marketname and marketname.strip() and marketname.strip().lower() != clean_model.lower():
++    if clean_market and clean_market.lower() != clean_model.lower():
+         resolved_brand = "Samsung" if "samsung" in clean_mfr.lower() else clean_mfr
+-        return resolved_brand, marketname.strip()
++        return resolved_brand, clean_market
+ 
+     # 2. Samsung Resolver
+     if clean_model.upper().startswith("SM-") or "samsung" in clean_mfr.lower():
+@@ -321,6 +334,8 @@
+-def parse_imei_from_service_call(parcel_output: str) -> Optional[str]:
++def parse_imei_from_service_call(parcel_output: Optional[str]) -> Optional[str]:
+     """
+     Extracts 15-digit IMEI from 'service call iphonesubinfo 1' parcel dump.
+     Decodes ASCII text characters between single quotes.
+     """
++    if not parcel_output or not isinstance(parcel_output, str):
++        return None
+     matches = re.findall(r"'([^']*)'", parcel_output)
+     if not matches:
+         return None
+@@ -341,15 +356,22 @@
+-def parse_battery_info(dumpsys_battery_output: str) -> Tuple[int, Optional[int], Optional[int]]:
++def parse_battery_info(dumpsys_battery_output: Optional[str]) -> Tuple[int, Optional[int], Optional[int]]:
+     """
+     Parses 'adb shell dumpsys battery'.
+     Returns (level_percentage, health_percentage_or_none, cycle_count_or_none).
+     """
++    if not dumpsys_battery_output or not isinstance(dumpsys_battery_output, str):
++        return 0, None, None
++
+     clean = sanitize_adb_output(dumpsys_battery_output)
++    if not clean:
++        return 0, None, None
++
+     level = 0
+     scale = 100
+-    health_code = 2
++    health_code: Optional[int] = None
+     cycle_count = None
+     asoc = None
+ 
+     for line in clean.splitlines():
+@@ -376,5 +398,10 @@
+     calc_level = int((level * 100) / scale) if scale > 0 else level
+-    health_pct = asoc if asoc is not None else (95 if health_code == 2 else 70)
++    if asoc is not None:
++        health_pct = asoc
++    elif health_code is not None:
++        health_pct = 95 if health_code == 2 else 70
++    else:
++        health_pct = None
+ 
+     return calc_level, health_pct, cycle_count

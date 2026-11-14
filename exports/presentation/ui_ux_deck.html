@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ProLab Smart Label Studio — تطوير وتنظيم واجهة المستخدم الحديثة</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --color-primary: #D4AF37;
+            --color-primary-hover: #E5C158;
+            --color-background: #0D0D11;
+            --color-surface: #16161D;
+            --color-card: #1A1A26;
+            --color-border: #282838;
+            --color-text-white: #F4F4F6;
+            --color-text-muted: #9CA3AF;
+            --color-emerald: #10B981;
+            --color-crimson: #EF4444;
+            --font-family: 'Segoe UI', 'Cairo', Tahoma, sans-serif;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: var(--color-background);
+            color: var(--color-text-white);
+            font-family: var(--font-family);
+            overflow: hidden;
+            user-select: none;
+        }
+
+        .slide-deck {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        @media (min-width: 769px) {
+            .slide-deck {
+                max-width: calc(100vh * 16 / 9);
+                max-height: calc(100vw * 9 / 16);
+                margin: auto;
+                position: absolute;
+                inset: 0;
+            }
+        }
+
+        .slide {
+            position: absolute;
+            width: 100%; height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 40px;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.4s ease, transform 0.4s ease;
+            transform: scale(0.98);
+            background: radial-gradient(circle at 50% 20%, #1A1A28 0%, #0D0D11 80%);
+            overflow: hidden;
+        }
+
+        .slide.active {
+            opacity: 1;
+            visibility: visible;
+            transform: scale(1);
+        }
+
+        .slide-content {
+            width: 100%;
+            max-width: 1100px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .badge {
+            background: rgba(212, 175, 55, 0.15);
+            color: var(--color-primary);
+            border: 1px solid var(--color-primary);
+            border-radius: 20px;
+            padding: 6px 16px;
+            font-size: 13px;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+        }
+
+        .slide-title {
+            font-size: clamp(28px, 4.5vw, 48px);
+            background: linear-gradient(135deg, #FFF0B8 0%, #D4AF37 50%, #AA8010 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            line-height: 1.2;
+            font-weight: 800;
+        }
+
+        .slide-subtitle {
+            font-size: clamp(14px, 1.8vw, 18px);
+            color: var(--color-text-muted);
+            max-width: 800px;
+            line-height: 1.6;
+        }
+
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        .card {
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            border-radius: 12px;
+            padding: 20px 16px;
+            text-align: right;
+            transition: border-color 0.2s, transform 0.2s;
+        }
+
+        .card:hover {
+            border-color: var(--color-primary);
+            transform: translateY(-4px);
+        }
+
+        .card-icon {
+            font-size: 28px;
+            margin-bottom: 8px;
+        }
+
+        .card-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: var(--color-primary);
+            margin-bottom: 6px;
+        }
+
+        .card-desc {
+            font-size: 12px;
+            color: var(--color-text-muted);
+            line-height: 1.5;
+        }
+
+        .chart-box {
+            width: 100%;
+            max-width: 650px;
+            height: 280px;
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            border-radius: 12px;
+            padding: 16px;
+            margin-top: 10px;
+        }
+
+        /* Nav controls */
+        .nav-bar {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            background: rgba(22, 22, 29, 0.85);
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--color-border);
+            padding: 8px 18px;
+            border-radius: 30px;
+            z-index: 100;
+        }
+
+        .nav-btn {
+            background: #1E1E28;
+            color: var(--color-text-white);
+            border: 1px solid #333345;
+            border-radius: 50%;
+            width: 34px;
+            height: 34px;
+            cursor: pointer;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: 0.2s;
+        }
+
+        .nav-btn:hover {
+            background: var(--color-primary);
+            color: #0D0D11;
+            border-color: var(--color-primary);
+        }
+
+        .nav-indicator {
+            font-size: 12px;
+            color: var(--color-text-muted);
+            font-weight: bold;
+            min-width: 60px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="slide-deck" id="deck">
+
+    <!-- Slide 1: Cover -->
+    <div class="slide active" id="slide-0">
+        <div class="slide-content">
+            <span class="badge">PROLAB DESIGN SYSTEM 2.0</span>
+            <h1 class="slide-title">تطوير وتنظيم واجهة المستخدم الحديثة</h1>
+            <p class="slide-subtitle">
+                نظام تصميم استوديو فاخر (Obsidian Black & Metallic Gold) مخصص لمحلات الهواتف وورش الصيانة الذكية، يوفر أقصى درجات السرعة، الجمال، وسهولة الاستخدام.
+            </p>
+            <div class="cards-grid">
+                <div class="card">
+                    <div class="card-icon">📱</div>
+                    <div class="card-title">بيانات الأجهزة</div>
+                    <div class="card-desc">سحب تلقائي ومحرر مباشر مع 8 كبسولات لونية بضغطة زر واحدة.</div>
+                </div>
+                <div class="card">
+                    <div class="card-icon">🛠️</div>
+                    <div class="card-title">استلام الصيانة</div>
+                    <div class="card-desc">إيصالات مرقمة TKT، قفل الشاشة، الأعطال، وطباعة الملصق الثلاثي.</div>
+                </div>
+                <div class="card">
+                    <div class="card-icon">📦</div>
+                    <div class="card-title">الجرد السريع</div>
+                    <div class="card-desc">جرد المخزن خلال 5 دقائق بمسح الباركود، رنين صوتي، وتصدير إكسل.</div>
+                </div>
+                <div class="card">
+                    <div class="card-icon">🖨️</div>
+                    <div class="card-title">طابعة 203 DPI</div>
+                    <div class="card-desc">معايرة فورية بضغطة زر، مقاسات جاهزة، وطباعة صامتة فورية (Ctrl+P).</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 2: Workflow & Speed Metrics -->
+    <div class="slide" id="slide-1">
+        <div class="slide-content">
+            <span class="badge">PERFORMANCE & SPEED</span>
+            <h2 class="slide-title">مقارنة زمن الإنجاز وتجربة المستخدم</h2>
+            <p class="slide-subtitle">
+                انخفاض زمن تجهيز وطباعة الملصق من 45 ثانية إلى أقل من 3 ثوانٍ بفضل أزرار الألوان والتعرف التلقائي.
+            </p>
+            <div class="chart-box">
+                <canvas id="speedChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 3: 4 Operational Modes -->
+    <div class="slide" id="slide-2">
+        <div class="slide-content">
+            <span class="badge">FOUR OPERATIONAL MODES</span>
+            <h2 class="slide-title">الهيكلية التنظيمية الجديدة للواجهة</h2>
+            <p class="slide-subtitle">
+                توزيع مهام العمل في 4 تبويبات واضحة دون أي تشتت أو تعقيد للفني أو البائع.
+            </p>
+            <div class="cards-grid">
+                <div class="card" style="border-right: 3px solid #38BDF8;">
+                    <div class="card-title">1. بيع وعرض الأجهزة</div>
+                    <div class="card-desc">قراءة عتاد الهاتف، اختيار اللون السريع، دمج ذكي للبيانات على مقاس 38x25 مم.</div>
+                </div>
+                <div class="card" style="border-right: 3px solid #F59E0B;">
+                    <div class="card-title">2. استلام الصيانة</div>
+                    <div class="card-desc">تسجيل العميل، التكلفة، نمط الشاشة، وطباعة كروت الفحص والأمان.</div>
+                </div>
+                <div class="card" style="border-right: 3px solid #10B981;">
+                    <div class="card-title">3. الجرد ومطابقة المخزن</div>
+                    <div class="card-desc">شاشة مخصصة للقارئ اللاسلكي، عدادات أجهزة حية، وتنبيهات صوتية فورية.</div>
+                </div>
+                <div class="card" style="border-right: 3px solid #A855F7;">
+                    <div class="card-title">4. السجل وإعادة الطباعة</div>
+                    <div class="card-desc">بحث لحظي بأي جزء من السيريال أو الاسم، وإعادة طباعة أي ملصق بضغطة واحدة.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 4: Ergonomics & CAD Studio -->
+    <div class="slide" id="slide-3">
+        <div class="slide-content">
+            <span class="badge">PRECISION CAD STUDIO</span>
+            <h2 class="slide-title">استوديو التصميم المتفاعل بدقة الملليمتر</h2>
+            <p class="slide-subtitle">
+                حرية كاملة في السحب والإفلات وتغيير الأحجام مع مسطرة هندسية ومحاذاة للشبكة.
+            </p>
+            <div class="cards-grid" style="grid-template-columns: repeat(3, 1fr);">
+                <div class="card">
+                    <div class="card-icon">⚡</div>
+                    <div class="card-title">Compact Smart Merge</div>
+                    <div class="card-desc">تجميع تلقائي لاسم الموديل والمساحة واللون والبطارية في سطر ذكي للملصقات الصغيرة.</div>
+                </div>
+                <div class="card">
+                    <div class="card-icon">⊞</div>
+                    <div class="card-title">Snap to Grid 0.5mm</div>
+                    <div class="card-desc">محاذاة مغناطيسية تمنع انحراف النصوص أو تداخل الباركود مع الحواف.</div>
+                </div>
+                <div class="card">
+                    <div class="card-icon">⌨️</div>
+                    <div class="card-title">اختصارات إنتاجية</div>
+                    <div class="card-desc">Ctrl+P للطباعة، Ctrl+S للحفظ، Ctrl+R لإعادة الفحص، والأسهم للتحريك الدقيق.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- Navigation Bar -->
+<div class="nav-bar">
+    <button class="nav-btn" id="prevBtn">❮</button>
+    <div class="nav-indicator" id="indicator">1 / 4</div>
+    <button class="nav-btn" id="nextBtn">❯</button>
+</div>
+
+<script>
+    let currentSlide = 0;
+    const slides = document.querySelectorAll('.slide');
+    const totalSlides = slides.length;
+    const indicator = document.getElementById('indicator');
+
+    function showSlide(index) {
+        slides.forEach((s, i) => {
+            s.classList.toggle('active', i === index);
+        });
+        indicator.textContent = `${index + 1} / ${totalSlides}`;
+        if (index === 1 && !window.speedChartRendered) {
+            renderSpeedChart();
+        }
+    }
+
+    document.getElementById('prevBtn').addEventListener('click', () => {
+        currentSlide = (currentSlide - 1 + totalSlides) % totalSlides;
+        showSlide(currentSlide);
+    });
+
+    document.getElementById('nextBtn').addEventListener('click', () => {
+        currentSlide = (currentSlide + 1) % totalSlides;
+        showSlide(currentSlide);
+    });
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') {
+            currentSlide = (currentSlide + 1) % totalSlides;
+            showSlide(currentSlide);
+        } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+            currentSlide = (currentSlide - 1 + totalSlides) % totalSlides;
+            showSlide(currentSlide);
+        }
+    });
+
+    function renderSpeedChart() {
+        window.speedChartRendered = true;
+        const ctx = document.getElementById('speedChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: ['إدخال البيانات', 'اختيار اللون', 'ضبط أبعاد الورق', 'إرسال أمر الطباعة', 'المجموع الكلي'],
+                datasets: [
+                    {
+                        label: 'الواجهة السابقة (يدوي)',
+                        data: [18, 8, 12, 7, 45],
+                        backgroundColor: 'rgba(239, 68, 68, 0.65)',
+                        borderColor: '#EF4444',
+                        borderWidth: 1,
+                        borderRadius: 4
+                    },
+                    {
+                        label: 'الواجهة الحديثة المطورة',
+                        data: [0.5, 0.2, 0.5, 1.0, 2.2],
+                        backgroundColor: 'rgba(212, 175, 55, 0.85)',
+                        borderColor: '#E5C158',
+                        borderWidth: 1,
+                        borderRadius: 4
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { labels: { color: '#F4F4F6', font: { family: 'Segoe UI' } } }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: { color: '#9CA3AF' },
+                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                        title: { display: true, text: 'الزمن بالثواني (أقل يعني أسرع)', color: '#9CA3AF' }
+                    },
+                    x: {
+                        ticks: { color: '#F4F4F6' },
+                        grid: { display: false }
+                    }
+                }
+            }
+        });
+    }
+</script>
+
+</body>
+</html>

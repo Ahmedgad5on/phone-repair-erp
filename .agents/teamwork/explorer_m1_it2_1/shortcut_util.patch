@@ -1,0 +1,113 @@
+--- a/core/shortcut_util.py
++++ b/core/shortcut_util.py
+@@ -204,27 +204,61 @@
+         # Normalize shortcut name
+-        name = shortcut_name.strip()
+-        if not name.lower().endswith(".lnk"):
+-            name += ".lnk"
++        if not shortcut_name or not isinstance(shortcut_name, str) or not shortcut_name.strip():
++            name = "ProLab SmartLabeler.lnk"
++        else:
++            name = shortcut_name.strip()
++            if not name.lower().endswith(".lnk"):
++                name += ".lnk"
+         lnk_path = target_desktop / name
+ 
+-        # Resolve target executable
++        # Resolve and validate target executable
+         if target_exe is None:
+-            target_path = Path(os.path.realpath(sys.executable))
++            raw_target = sys.executable
++        elif isinstance(target_exe, (str, Path, os.PathLike)):
++            target_str = str(target_exe).strip()
++            if not target_str:
++                logger.error("Target executable path cannot be empty.")
++                return False
++            raw_target = target_str
+         else:
+-            target_path = Path(os.path.realpath(target_exe))
+-
++            logger.error("Invalid target_exe type '%s'. Expected str or Path.", type(target_exe).__name__)
++            return False
+ 
+-        # Resolve working directory
+-        if working_dir is None:
+-            if target_exe is not None:
+-                work_path = target_path.parent
+-            elif is_frozen():
+-                work_path = target_path.parent
+-            else:
+-                work_path = get_bundle_dir()
++        try:
++            target_path = Path(os.path.realpath(raw_target))
++        except (ValueError, TypeError, OSError) as e:
++            logger.error("Failed to resolve target_exe '%s': %s", raw_target, e)
++            return False
++
++        if not target_path.exists() or not target_path.is_file():
++            logger.error("Target executable does not exist or is not a file: %s", target_path)
++            return False
++
++        # Resolve working directory with fallback safety
++        if working_dir is not None:
++            try:
++                candidate_work = Path(working_dir).resolve()
++                if candidate_work.exists() and candidate_work.is_dir():
++                    work_path = candidate_work
++                else:
++                    logger.warning(
++                        "Specified working_dir does not exist or is not a directory: %s. Falling back to target parent.",
++                        working_dir,
++                    )
++                    work_path = target_path.parent
++            except Exception as e:
++                logger.warning("Invalid working_dir '%s': %s. Falling back to target parent.", working_dir, e)
++                work_path = target_path.parent
+         else:
+-            work_path = Path(working_dir).resolve()
++            if target_exe is not None or is_frozen():
++                work_path = target_path.parent
++            else:
++                work_path = get_bundle_dir()
+ 
+         # In dev mode, configure arguments to run main.py if target is python.exe
+         if not is_frozen() and not arguments and target_exe is None:
+             main_script = get_bundle_dir() / "main.py"
+             if main_script.exists():
+                 arguments = f'"{main_script}"'
+ 
+-        # Resolve icon path
++        # Resolve icon path with fallback cascade
+         final_icon: Optional[Path] = None
+         if icon_path is not None:
+-            p = Path(icon_path).resolve()
+-            if p.exists():
+-                final_icon = p
++            try:
++                icon_str = str(icon_path).strip()
++                if icon_str:
++                    p = Path(icon_str).resolve()
++                    if p.exists() and p.is_file():
++                        final_icon = p
++                    else:
++                        logger.warning(
++                            "Custom icon path does not exist or is not a file: %s. Falling back to default app icon.",
++                            icon_path,
++                        )
++            except Exception as e:
++                logger.warning("Error resolving icon_path '%s': %s. Falling back to default app icon.", icon_path, e)
++
+         if final_icon is None:
+-            candidate = get_asset_path("app_icon.ico")
+-            if candidate.exists():
+-                final_icon = candidate.resolve()
+-            elif is_frozen():
+-                final_icon = target_path
++            try:
++                candidate = get_asset_path("app_icon.ico")
++                if candidate.exists() and candidate.is_file():
++                    final_icon = candidate.resolve()
++                elif is_frozen():
++                    final_icon = target_path
++            except Exception as e:
++                logger.warning("Error resolving default app icon: %s", e)
