@@ -13,6 +13,8 @@ from PyQt6.QtCore import Qt
 from core.paths import get_app_data_dir, get_asset_path
 from core.database import DatabaseManager
 from core.version import APP_VERSION, get_version, get_window_title
+from core.licensing.client import get_licensing_client
+from ui.auth_dialog import AuthDialog
 from ui.main_window import MainWindow
 
 # Configure logging
@@ -54,10 +56,17 @@ def main():
     except Exception as e:
         logger.debug("ADB server startup note: %s", e)
 
+    # Ensure local central server is active for licensing & authentication
+    try:
+        from core.licensing.client import ensure_local_server_running
+        ensure_local_server_running()
+    except Exception as e:
+        logger.debug("Local server autostart note: %s", e)
+
     # Create application
     app = QApplication(sys.argv)
-    app.setApplicationName("ProLab Smart Label Studio")
-    app.setOrganizationName("ProLab")
+    app.setApplicationName("ThermalLabPro Commercial ERP")
+    app.setOrganizationName("ThermalLabPro")
 
     # Set global icon
     icon_path = get_asset_path("app_icon.ico")
@@ -65,16 +74,39 @@ def main():
         app.setWindowIcon(QIcon(str(icon_path)))
         logger.info("Configured global application window icon from %s", icon_path)
 
+    # Check commercial licensing and customer session
+    lic_client = get_licensing_client()
+    session = lic_client.load_session()
+    lic_status = lic_client.get_license_status()
+
+    # If first launch / no active customer session, present AuthDialog
+    if not lic_client.is_logged_in() and not os.environ.get("PROLAB_SKIP_AUTH_PROMPT"):
+        auth_dlg = AuthDialog(client=lic_client)
+        auth_dlg.exec()
+
+        # If user closed or rejected the login dialog without authenticating, exit immediately
+        if not auth_dlg.authenticated and not lic_client.is_logged_in():
+            logger.info("Authentication was closed or canceled by user. Exiting application.")
+            sys.exit(0)
+
+        # Refresh license status after auth dialog
+        lic_status = lic_client.get_license_status()
+
     # Initialize database manager
     db = DatabaseManager()
 
     # Create and show main window
-    window = MainWindow(db=db)
+    window = MainWindow(db=db, license_status=lic_status)
     if icon_path.exists():
         window.setWindowIcon(QIcon(str(icon_path)))
     window.show()
     window.raise_()
     window.activateWindow()
+
+    # If unactivated, prompt user with License Dialog smoothly after window is visible
+    if not lic_status.is_valid:
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(600, window._open_license_dialog)
 
     logger.info("ProLab Smart Label Studio desktop application started successfully.")
     sys.exit(app.exec())

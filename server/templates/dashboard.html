@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ProLab Trading — لوحة تحكم الإدارة والتراخيص المركزية</title>
+    <!-- Tailwind CSS (CDN for zero local asset dependency in dashboard) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        darkBg: '#0F0F13',
+                        darkCard: '#16161D',
+                        darkBorder: '#282834',
+                        gold: '#D4AF37',
+                        goldHover: '#E5C158',
+                        accentGreen: '#10B981',
+                        accentRed: '#EF4444',
+                        accentBlue: '#3B82F6'
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0F0F13; color: #E5E7EB; }
+        .gold-glow { box-shadow: 0 0 15px rgba(212, 175, 55, 0.15); }
+        .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #282834; border-radius: 3px; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col custom-scroll">
+
+    <!-- Top Navigation Bar -->
+    <header class="bg-darkCard border-b border-darkBorder px-6 py-4 flex items-center justify-between sticky top-0 z-50">
+        <div class="flex items-center space-x-3 space-x-reverse">
+            <span class="text-2xl">👑</span>
+            <div>
+                <h1 class="text-lg font-bold text-gold tracking-wide">PROLAB TRADING STUDIO — ENTERPRISE ADMIN</h1>
+                <p class="text-xs text-gray-400">نظام إدارة التراخيص والاشتراكات المركزي والتحديثات التلقائية</p>
+            </div>
+        </div>
+        <div class="flex items-center space-x-4 space-x-reverse">
+            <div id="adminUserBadge" class="hidden text-xs bg-darkBg border border-darkBorder px-3 py-1.5 rounded-md text-gray-300">
+                المسؤول: <span id="adminUsername" class="text-gold font-bold"></span> (<span id="adminRole" class="text-accentGreen"></span>)
+            </div>
+            <button onclick="logoutAdmin()" id="btnLogout" class="hidden text-xs bg-red-950/60 hover:bg-red-900 border border-red-800 text-red-200 px-3 py-1.5 rounded-md transition">
+                تسجيل الخروج
+            </button>
+            <button onclick="openLoginModal()" id="btnLogin" class="text-xs bg-gold hover:bg-goldHover text-black font-bold px-4 py-1.5 rounded-md transition">
+                دخول الإدارة
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
+
+        <!-- KPI Stats Grid -->
+        <section class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="bg-darkCard border border-darkBorder rounded-lg p-4 flex flex-col justify-between">
+                <span class="text-xs text-gray-400">إجمالي العملاء المسجلين</span>
+                <span id="statTotalCustomers" class="text-2xl font-bold text-gold mt-1">--</span>
+            </div>
+            <div class="bg-darkCard border border-darkBorder rounded-lg p-4 flex flex-col justify-between">
+                <span class="text-xs text-gray-400">طلبات انتظار الموافقة</span>
+                <span id="statPendingApprovals" class="text-2xl font-bold text-amber-400 mt-1">--</span>
+            </div>
+            <div class="bg-darkCard border border-darkBorder rounded-lg p-4 flex flex-col justify-between">
+                <span class="text-xs text-gray-400">الاشتراكات النشطة</span>
+                <span id="statActiveSubs" class="text-2xl font-bold text-accentGreen mt-1">--</span>
+            </div>
+            <div class="bg-darkCard border border-darkBorder rounded-lg p-4 flex flex-col justify-between">
+                <span class="text-xs text-gray-400">إجمالي الإيرادات المؤكدة</span>
+                <span id="statTotalRevenue" class="text-2xl font-bold text-emerald-400 mt-1">--</span>
+            </div>
+        </section>
+
+        <!-- Navigation Tabs -->
+        <nav class="flex border-b border-darkBorder space-x-2 space-x-reverse overflow-x-auto text-sm">
+            <button onclick="switchTab('customersTab')" id="tabBtn_customers" class="px-4 py-2.5 font-bold border-b-2 border-gold text-gold transition">
+                👥 إدارة العملاء والطلبات
+            </button>
+            <button onclick="switchTab('licensesTab')" id="tabBtn_licenses" class="px-4 py-2.5 font-bold text-gray-400 hover:text-gold transition">
+                🔑 التراخيص والأجهزة
+            </button>
+            <button onclick="switchTab('paymentsTab')" id="tabBtn_payments" class="px-4 py-2.5 font-bold text-gray-400 hover:text-gold transition">
+                💳 المدفوعات والتحصيلات
+            </button>
+            <button onclick="switchTab('releasesTab')" id="tabBtn_releases" class="px-4 py-2.5 font-bold text-gray-400 hover:text-gold transition">
+                🚀 التحديثات والإصدارات
+            </button>
+            <button onclick="switchTab('auditTab')" id="tabBtn_audit" class="px-4 py-2.5 font-bold text-gray-400 hover:text-gold transition">
+                🛡️ سجل الأمان والرقابة
+            </button>
+        </nav>
+
+        <!-- TAB 1: CUSTOMERS & APPROVALS -->
+        <section id="customersTab" class="space-y-4">
+            <div class="flex flex-col md:flex-row justify-between items-center gap-3">
+                <div class="flex items-center space-x-2 space-x-reverse w-full md:w-auto">
+                    <input type="text" id="custSearchInput" placeholder="بحث بالاسم، المحل، الهاتف، الترخيص..."
+                           class="bg-darkBg border border-darkBorder rounded px-3 py-2 text-sm w-full md:w-80 focus:border-gold outline-none">
+                    <button onclick="loadCustomers()" class="bg-gold hover:bg-goldHover text-black text-sm px-4 py-2 rounded font-bold transition">
+                        بحث
+                    </button>
+                </div>
+                <div class="flex items-center space-x-2 space-x-reverse">
+                    <select id="custStatusFilter" onchange="loadCustomers()" class="bg-darkBg border border-darkBorder rounded px-3 py-2 text-sm text-gray-300 outline-none">
+                        <option value="">جميع الحالات</option>
+                        <option value="PENDING_APPROVAL">بانتظار الموافقة</option>
+                        <option value="PENDING_VERIFICATION">بانتظار تأكيد الهاتف</option>
+                        <option value="APPROVED">معتمد</option>
+                        <option value="ACTIVE">نشط</option>
+                        <option value="SUSPENDED">موقوف مؤقتاً</option>
+                        <option value="BLOCKED">محظور</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Customers Table -->
+            <div class="bg-darkCard border border-darkBorder rounded-lg overflow-x-auto">
+                <table class="w-full text-sm text-right">
+                    <thead class="bg-darkBg text-xs text-gray-400 border-b border-darkBorder">
+                        <tr>
+                            <th class="p-3">كود العميل</th>
+                            <th class="p-3">اسم التاجر / المحل</th>
+                            <th class="p-3">رقم الهاتف</th>
+                            <th class="p-3">المحافظة</th>
+                            <th class="p-3">حالة الحساب</th>
+                            <th class="p-3">الترخيص النشط</th>
+                            <th class="p-3">تاريخ التسجيل</th>
+                            <th class="p-3 text-center">الإجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody id="customersTableBody" class="divide-y divide-darkBorder">
+                        <tr><td colspan="8" class="p-4 text-center text-gray-500">جاري تحميل بيانات العملاء...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- TAB 2: LICENSES & DEVICES -->
+        <section id="licensesTab" class="hidden space-y-4">
+            <div class="flex justify-between items-center">
+                <h3 class="text-sm font-bold text-gold">إصدار ترخيص مباشر / استعراض الأجهزة</h3>
+                <button onclick="openIssueLicenseModal()" class="bg-gold hover:bg-goldHover text-black text-xs font-bold px-3 py-1.5 rounded transition">
+                    + إصدار ترخيص جديد
+                </button>
+            </div>
+            <div class="bg-darkCard border border-darkBorder rounded-lg overflow-x-auto">
+                <table class="w-full text-sm text-right">
+                    <thead class="bg-darkBg text-xs text-gray-400 border-b border-darkBorder">
+                        <tr>
+                            <th class="p-3">معرف الجهاز (Device ID)</th>
+                            <th class="p-3">اسم الجهاز / المحطة</th>
+                            <th class="p-3">كود العميل</th>
+                            <th class="p-3">كود الترخيص</th>
+                            <th class="p-3">الحالة</th>
+                            <th class="p-3">آخر فحص (Heartbeat)</th>
+                            <th class="p-3 text-center">الإجراء</th>
+                        </tr>
+                    </thead>
+                    <tbody id="devicesTableBody" class="divide-y divide-darkBorder">
+                        <tr><td colspan="7" class="p-4 text-center text-gray-500">جاري تحميل بيانات الأجهزة...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- TAB 3: PAYMENTS -->
+        <section id="paymentsTab" class="hidden space-y-4">
+            <h3 class="text-sm font-bold text-gold">سجلات التحصيل والمدفوعات</h3>
+            <div class="bg-darkCard border border-darkBorder rounded-lg overflow-x-auto">
+                <table class="w-full text-sm text-right">
+                    <thead class="bg-darkBg text-xs text-gray-400 border-b border-darkBorder">
+                        <tr>
+                            <th class="p-3">رقم الإشعار</th>
+                            <th class="p-3">العميل</th>
+                            <th class="p-3">المبلغ</th>
+                            <th class="p-3">طريقة الدفع</th>
+                            <th class="p-3">رقم المرجع / المحفظة</th>
+                            <th class="p-3">الحالة</th>
+                            <th class="p-3">التاريخ</th>
+                            <th class="p-3 text-center">تأكيد / رفض</th>
+                        </tr>
+                    </thead>
+                    <tbody id="paymentsTableBody" class="divide-y divide-darkBorder">
+                        <tr><td colspan="8" class="p-4 text-center text-gray-500">جاري تحميل سجلات الدفع...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- TAB 4: RELEASES -->
+        <section id="releasesTab" class="hidden space-y-4">
+            <div class="flex justify-between items-center">
+                <h3 class="text-sm font-bold text-gold">نشر تحديثات البرامج الموقعة رقمياً (Ed25519)</h3>
+            </div>
+            <div class="bg-darkCard border border-darkBorder rounded-lg p-6 max-w-2xl">
+                <form id="uploadReleaseForm" onsubmit="handleUploadRelease(event)" class="space-y-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">رقم الإصدار (مثل 4.7.0):</label>
+                            <input type="text" name="version" required placeholder="4.7.0" class="w-full bg-darkBg border border-darkBorder rounded px-3 py-2 text-sm outline-none focus:border-gold">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">قناة التوزيع:</label>
+                            <select name="channel" class="w-full bg-darkBg border border-darkBorder rounded px-3 py-2 text-sm outline-none">
+                                <option value="stable">مستقر (Stable - لكافة العملاء)</option>
+                                <option value="beta">تجريبي (Beta - عملاء الـ VIP)</option>
+                                <option value="internal">داخلي (Internal QA)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">أدنى إصدار مدعوم للترقية:</label>
+                            <input type="text" name="min_supported_version" value="4.0.0" class="w-full bg-darkBg border border-darkBorder rounded px-3 py-2 text-sm outline-none">
+                        </div>
+                        <div class="flex items-center space-x-2 space-x-reverse pt-6">
+                            <input type="checkbox" id="isMandatory" name="is_mandatory" class="w-4 h-4 text-gold">
+                            <label for="isMandatory" class="text-xs text-gray-300">تحديث إجباري (Mandatory)</label>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-400 mb-1">ملف الحزمة التنفيذي (.exe أو .zip):</label>
+                        <input type="file" name="package_file" required class="w-full text-xs text-gray-400 file:mr-0 file:ml-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-darkBorder file:text-gold hover:file:bg-gold hover:file:text-black">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-400 mb-1">سجل التغييرات وملاحظات الإصدار (Release Notes):</label>
+                        <textarea name="release_notes" rows="3" class="w-full bg-darkBg border border-darkBorder rounded px-3 py-2 text-sm outline-none focus:border-gold" placeholder="سجل التحسينات والميزات المضافة..."></textarea>
+                    </div>
+                    <button type="submit" class="w-full bg-gold hover:bg-goldHover text-black font-bold py-2 rounded text-sm transition">
+                        رفع الإصدار وتوقيع البيان رقمياً بواسطة Ed25519
+                    </button>
+                </form>
+            </div>
+        </section>
+
+        <!-- TAB 5: AUDIT LOGS -->
+        <section id="auditTab" class="hidden space-y-4">
+            <h3 class="text-sm font-bold text-gold">سجل الأمان والعمليات الإدارية الرقابي (غير قابل للتعديل)</h3>
+            <div class="bg-darkCard border border-darkBorder rounded-lg overflow-x-auto">
+                <table class="w-full text-xs text-right">
+                    <thead class="bg-darkBg text-gray-400 border-b border-darkBorder">
+                        <tr>
+                            <th class="p-3">التوقيت (UTC)</th>
+                            <th class="p-3">المستخدم</th>
+                            <th class="p-3">الصلاحية</th>
+                            <th class="p-3">نوع الإجراء</th>
+                            <th class="p-3">الهدف</th>
+                            <th class="p-3">النتيجة</th>
+                            <th class="p-3">عنوان IP</th>
+                        </tr>
+                    </thead>
+                    <tbody id="auditTableBody" class="divide-y divide-darkBorder">
+                        <tr><td colspan="7" class="p-4 text-center text-gray-500">جاري تحميل سجل الأمان...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Admin Login Modal -->
+    <div id="loginModal" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+        <div class="bg-darkCard border border-gold rounded-lg p-6 max-w-sm w-full space-y-4 gold-glow">
+            <h2 class="text-base font-bold text-gold text-center">تسجيل دخول الإدارة (Admin Login)</h2>
+            <form onsubmit="handleAdminLogin(event)" class="space-y-3">
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">اسم المستخدم:</label>
+                    <input type="text" id="adminLoginUser" required class="w-full bg-darkBg border border-darkBorder rounded px-3 py-2 text-sm outline-none focus:border-gold">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">كلمة المرور:</label>
+                    <input type="password" id="adminLoginPass" required class="w-full bg-darkBg border border-darkBorder rounded px-3 py-2 text-sm outline-none focus:border-gold">
+                </div>
+                <div class="flex space-x-2 space-x-reverse pt-2">
+                    <button type="submit" class="flex-1 bg-gold hover:bg-goldHover text-black font-bold py-2 rounded text-sm transition">
+                        دخول
+                    </button>
+                    <button type="button" onclick="closeLoginModal()" class="px-4 bg-darkBorder text-gray-300 py-2 rounded text-sm transition">
+                        إلغاء
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Client-side Logic -->
+    <script>
+        let adminToken = localStorage.getItem("prolab_admin_token") || "";
+
+        function switchTab(tabId) {
+            ['customersTab', 'licensesTab', 'paymentsTab', 'releasesTab', 'auditTab'].forEach(t => {
+                document.getElementById(t).classList.add('hidden');
+            });
+            document.getElementById(tabId).classList.remove('hidden');
+
+            if (tabId === 'customersTab') loadCustomers();
+            if (tabId === 'licensesTab') loadDevices();
+            if (tabId === 'paymentsTab') loadPayments();
+            if (tabId === 'auditTab') loadAuditLogs();
+        }
+
+        function checkAuth() {
+            if (adminToken) {
+                document.getElementById('btnLogin').classList.add('hidden');
+                document.getElementById('btnLogout').classList.remove('hidden');
+                document.getElementById('adminUserBadge').classList.remove('hidden');
+                document.getElementById('adminUsername').innerText = localStorage.getItem("prolab_admin_name") || "admin";
+                document.getElementById('adminRole').innerText = localStorage.getItem("prolab_admin_role") || "Super Admin";
+                loadDashboardStats();
+                loadCustomers();
+            } else {
+                document.getElementById('btnLogin').classList.remove('hidden');
+                document.getElementById('btnLogout').classList.add('hidden');
+                document.getElementById('adminUserBadge').classList.add('hidden');
+            }
+        }
+
+        async function apiCall(endpoint, method = "GET", body = null) {
+            const headers = { "Content-Type": "application/json" };
+            if (adminToken) headers["Authorization"] = `Bearer ${adminToken}`;
+            const opts = { method, headers };
+            if (body) opts.body = JSON.stringify(body);
+            try {
+                const res = await fetch(endpoint, opts);
+                if (res.status === 401) {
+                    alert("انتهت جلسة تسجيل الدخول. يرجى إعادة الدخول.");
+                    logoutAdmin();
+                    return null;
+                }
+                return await res.json();
+            } catch (e) {
+                console.error("API error:", e);
+                return null;
+            }
+        }
+
+        async function loadDashboardStats() {
+            const data = await apiCall('/api/v1/admin/stats');
+            if (data) {
+                document.getElementById('statTotalCustomers').innerText = data.total_customers;
+                document.getElementById('statPendingApprovals').innerText = data.pending_approvals;
+                document.getElementById('statActiveSubs').innerText = data.active_subscriptions;
+                document.getElementById('statTotalRevenue').innerText = `${data.total_revenue_egp.toLocaleString()} ج.م`;
+            }
+        }
+
+        async function loadCustomers() {
+            const search = document.getElementById('custSearchInput').value;
+            const status = document.getElementById('custStatusFilter').value;
+            let url = `/api/v1/admin/customers?limit=100`;
+            if (search) url += `&search=${encodeURIComponent(search)}`;
+            if (status) url += `&status_filter=${encodeURIComponent(status)}`;
+
+            const data = await apiCall(url);
+            const tbody = document.getElementById('customersTableBody');
+            if (!data || !data.customers || data.customers.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" class="p-4 text-center text-gray-500">لا يوجد عملاء مطابقين للبحث.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = data.customers.map(c => `
+                <tr class="hover:bg-darkBg/50 transition">
+                    <td class="p-3 font-mono text-xs text-gold">${c.customer_id}</td>
+                    <td class="p-3 font-bold">${c.full_name} <span class="text-xs text-gray-400 block">${c.shop_name}</span></td>
+                    <td class="p-3 font-mono text-xs">${c.phone_number}</td>
+                    <td class="p-3">${c.city}</td>
+                    <td class="p-3">
+                        <span class="text-xs px-2 py-0.5 rounded ${
+                            c.account_status === 'APPROVED' ? 'bg-green-950 text-green-400 border border-green-800' :
+                            c.account_status === 'PENDING_APPROVAL' ? 'bg-amber-950 text-amber-300 border border-amber-800' :
+                            c.account_status === 'BLOCKED' ? 'bg-red-950 text-red-400 border border-red-800' : 'bg-gray-800 text-gray-400'
+                        }">${c.account_status}</span>
+                    </td>
+                    <td class="p-3 font-mono text-xs text-gray-300">${c.license_key || '-'}</td>
+                    <td class="p-3 text-xs text-gray-400">${c.created_at.substring(0, 10)}</td>
+                    <td class="p-3 text-center space-x-1 space-x-reverse">
+                        ${c.account_status === 'PENDING_APPROVAL' ? `
+                            <button onclick="approveCustomer('${c.customer_id}')" class="bg-green-700 hover:bg-green-600 text-xs text-white px-2 py-1 rounded">قبول وتفعيل</button>
+                            <button onclick="rejectCustomer('${c.customer_id}')" class="bg-red-800 hover:bg-red-700 text-xs text-white px-2 py-1 rounded">رفض</button>
+                        ` : `
+                            <button onclick="openCustomerDetails('${c.customer_id}')" class="bg-darkBorder hover:bg-gray-700 text-xs text-gold px-2 py-1 rounded">تفاصيل</button>
+                        `}
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        async function approveCustomer(custId) {
+            const plan = prompt("اختر الباقة لتعيينها تلقائياً:\n1: trial_14d (تجربة مجانية)\n2: monthly_standard (شهرية)\n3: annual_pro (سنوية)", "trial_14d");
+            if (!plan) return;
+            const res = await apiCall('/api/v1/admin/customers/approval', 'POST', {
+                customer_id: custId,
+                action: 'APPROVE',
+                plan_id: plan,
+                notes: 'Approved via Web Dashboard'
+            });
+            if (res && res.success) {
+                alert(`تم اعتماد العميل بنجاح وتم إصدار الترخيص: ${res.issued_license_key || 'مفعل'}`);
+                loadCustomers();
+                loadDashboardStats();
+            }
+        }
+
+        async function rejectCustomer(custId) {
+            if (!confirm("هل أنت متأكد من رفض هذا الطلب؟")) return;
+            const res = await apiCall('/api/v1/admin/customers/approval', 'POST', {
+                customer_id: custId,
+                action: 'REJECT',
+                notes: 'Rejected via Web Dashboard'
+            });
+            if (res && res.success) {
+                loadCustomers();
+                loadDashboardStats();
+            }
+        }
+
+        async function loadDevices() {
+            const data = await apiCall('/api/v1/admin/devices');
+            const tbody = document.getElementById('devicesTableBody');
+            if (!data || !data.devices || data.devices.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="p-4 text-center text-gray-500">لا توجد أجهزة مسجلة حالياً.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = data.devices.map(d => `
+                <tr class="hover:bg-darkBg/50 transition">
+                    <td class="p-3 font-mono text-xs text-gray-300">${d.device_id.substring(0, 16)}...</td>
+                    <td class="p-3 font-bold">${d.device_name}</td>
+                    <td class="p-3 font-mono text-xs text-gold">${d.customer_id}</td>
+                    <td class="p-3 font-mono text-xs text-gray-400">${d.license_id}</td>
+                    <td class="p-3"><span class="text-xs px-2 py-0.5 rounded ${d.status === 'ACTIVE' ? 'bg-green-950 text-green-400' : 'bg-red-950 text-red-400'}">${d.status}</span></td>
+                    <td class="p-3 text-xs text-gray-400">${d.last_validated_utc ? d.last_validated_utc.substring(0, 16) : '-'}</td>
+                    <td class="p-3 text-center">
+                        ${d.status === 'ACTIVE' ? `
+                            <button onclick="releaseDevice('${d.customer_id}', '${d.device_id}')" class="bg-red-900/60 hover:bg-red-800 text-red-200 text-xs px-2 py-1 rounded">تحرير المقعد</button>
+                        ` : '-'}
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        async function releaseDevice(custId, devId) {
+            if (!confirm("هل أنت متأكد من تحرير هذا الجهاز؟ سيتم إتاحته لعميلك على جهاز آخر.")) return;
+            const res = await apiCall('/api/v1/admin/devices/release', 'POST', {
+                customer_id: custId,
+                device_id: devId,
+                reason: 'Released via Web Dashboard'
+            });
+            if (res && res.success) {
+                alert(res.message);
+                loadDevices();
+            }
+        }
+
+        async function loadPayments() {
+            const data = await apiCall('/api/v1/admin/payments');
+            const tbody = document.getElementById('paymentsTableBody');
+            if (!data || !data.payments || data.payments.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" class="p-4 text-center text-gray-500">لا توجد إشعارات دفع حالياً.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = data.payments.map(p => `
+                <tr class="hover:bg-darkBg/50 transition">
+                    <td class="p-3 font-mono text-xs text-gold">${p.payment_id}</td>
+                    <td class="p-3 font-mono text-xs">${p.customer_id}</td>
+                    <td class="p-3 font-bold text-accentGreen">${p.amount} ${p.currency}</td>
+                    <td class="p-3">${p.payment_method}</td>
+                    <td class="p-3 font-mono text-xs text-gray-300">${p.reference_number || '-'}</td>
+                    <td class="p-3"><span class="text-xs px-2 py-0.5 rounded ${p.status === 'CONFIRMED' ? 'bg-green-950 text-green-400' : 'bg-amber-950 text-amber-300'}">${p.status}</span></td>
+                    <td class="p-3 text-xs text-gray-400">${p.created_at.substring(0, 10)}</td>
+                    <td class="p-3 text-center space-x-1 space-x-reverse">
+                        ${p.status === 'PENDING' ? `
+                            <button onclick="confirmPayment('${p.payment_id}', 'CONFIRMED')" class="bg-green-700 hover:bg-green-600 text-xs text-white px-2 py-1 rounded">تأكيد وتفعيل</button>
+                            <button onclick="confirmPayment('${p.payment_id}', 'REJECTED')" class="bg-red-800 hover:bg-red-700 text-xs text-white px-2 py-1 rounded">رفض</button>
+                        ` : `<span class="text-xs text-gray-500">مكتمل</span>`}
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        async function confirmPayment(paymentId, status) {
+            const plan = status === 'CONFIRMED' ? prompt("حدد الباقة لتفعيل الترخيص تلقائياً:\nannual_pro / monthly_standard / quarterly_pro", "annual_pro") : null;
+            const res = await apiCall('/api/v1/admin/payments/confirm', 'POST', {
+                payment_id: paymentId,
+                status: status,
+                plan_id: plan,
+                notes: 'Confirmed via Web Dashboard'
+            });
+            if (res && res.success) {
+                alert(res.message);
+                loadPayments();
+                loadDashboardStats();
+            }
+        }
+
+        async function loadAuditLogs() {
+            const data = await apiCall('/api/v1/admin/audit-logs');
+            const tbody = document.getElementById('auditTableBody');
+            if (!data || !data.audit_logs || data.audit_logs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="p-4 text-center text-gray-500">لا توجد سجلات أمان حالياً.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = data.audit_logs.map(a => `
+                <tr class="hover:bg-darkBg/50 transition">
+                    <td class="p-3 font-mono text-gray-400">${a.timestamp_utc.substring(0, 19).replace('T', ' ')}</td>
+                    <td class="p-3 font-bold">${a.actor_username}</td>
+                    <td class="p-3 text-gray-300">${a.actor_role}</td>
+                    <td class="p-3 font-mono text-gold">${a.action_type}</td>
+                    <td class="p-3 font-mono text-gray-400">${a.target_id || '-'}</td>
+                    <td class="p-3"><span class="px-1.5 py-0.5 rounded ${a.result === 'SUCCESS' ? 'text-green-400' : 'text-red-400'}">${a.result}</span></td>
+                    <td class="p-3 font-mono text-gray-500">${a.ip_address || '-'}</td>
+                </tr>
+            `).join('');
+        }
+
+        async function handleUploadRelease(e) {
+            e.preventDefault();
+            const form = e.target;
+            const formData = new FormData(form);
+            try {
+                const res = await fetch('/api/v1/admin/releases/publish', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${adminToken}` },
+                    body: formData
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert(`تم نشر الإصدار بنجاح وتوليد توقيع Ed25519:\nSHA-256: ${data.sha256}`);
+                    form.reset();
+                    loadDashboardStats();
+                } else {
+                    alert(`خطأ: ${data.detail || 'فشل نشر التحديث'}`);
+                }
+            } catch (err) {
+                alert(`خطأ في رفع الإصدار: ${err}`);
+            }
+        }
+
+        function openLoginModal() { document.getElementById('loginModal').classList.remove('hidden'); }
+        function closeLoginModal() { document.getElementById('loginModal').classList.add('hidden'); }
+
+        async function handleAdminLogin(e) {
+            e.preventDefault();
+            const u = document.getElementById('adminLoginUser').value;
+            const p = document.getElementById('adminLoginPass').value;
+            try {
+                const res = await fetch('/api/v1/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username_or_phone: u, password: p })
+                });
+                const data = await res.json();
+                if (data.access_token) {
+                    adminToken = data.access_token;
+                    localStorage.setItem("prolab_admin_token", adminToken);
+                    localStorage.setItem("prolab_admin_name", data.username);
+                    localStorage.setItem("prolab_admin_role", data.role);
+                    closeLoginModal();
+                    checkAuth();
+                } else {
+                    alert(data.detail || "فشل تسجيل الدخول");
+                }
+            } catch (err) {
+                alert(`خطأ في الاتصال: ${err}`);
+            }
+        }
+
+        function logoutAdmin() {
+            adminToken = "";
+            localStorage.removeItem("prolab_admin_token");
+            localStorage.removeItem("prolab_admin_name");
+            localStorage.removeItem("prolab_admin_role");
+            checkAuth();
+        }
+
+        // Initialize on load
+        window.onload = checkAuth;
+    </script>
+</body>
+</html>

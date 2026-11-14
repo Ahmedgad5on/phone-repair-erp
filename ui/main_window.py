@@ -64,6 +64,13 @@ from ui.printer_panel import PrinterManagerPanel
 from ui.styles import load_theme
 from ui.about_dialog import AboutDialog
 from core.version import get_version, get_window_title, get_full_version
+from core.licensing.client import get_licensing_client, LicensingClient
+from core.licensing.license_verifier import LicenseStatusInfo
+from core.licensing.update_checker import UpdateChecker
+from ui.license_dialog import LicenseDialog
+from ui.update_dialog import UpdateDialog
+from ui.auth_dialog import AuthDialog
+from ui.customer_profile_dialog import CustomerProfileDialog
 
 logger = logging.getLogger(__name__)
 
@@ -74,13 +81,16 @@ class MainWindow(QMainWindow):
     Features an Executive Vertical Sidebar and QStackedWidget architecture.
     """
 
-    def __init__(self, db: Optional[DatabaseManager] = None, parent=None):
+    def __init__(self, db: Optional[DatabaseManager] = None, license_status: Optional[Any] = None, parent=None):
         super().__init__(parent)
         self.setWindowTitle(get_window_title())
         self.setMinimumSize(1280, 760)
         self.resize(1480, 920)
 
         self.db = db or DatabaseManager()
+        self.lic_client = get_licensing_client()
+        self.license_status = license_status or self.lic_client.get_license_status()
+
         self.current_role = "Owner"
         self.current_user = "Owner"
         self._current_specs: DeviceSpecs = DeviceSpecs.empty()
@@ -122,12 +132,12 @@ class MainWindow(QMainWindow):
         brand_layout.setContentsMargins(10, 8, 10, 8)
         brand_layout.setSpacing(2)
 
-        lbl_logo_title = QLabel("👑 PROLAB TRADING")
+        lbl_logo_title = QLabel("👑 THERMALLABPRO")
         lbl_logo_title.setObjectName("title")
         lbl_logo_title.setStyleSheet("font-size: 15px; font-weight: 800; color: #D4AF37;")
         brand_layout.addWidget(lbl_logo_title)
 
-        lbl_logo_sub = QLabel(f"Mobile Trading Studio v{get_version()}")
+        lbl_logo_sub = QLabel(f"Commercial ERP Studio v{get_version()}")
         lbl_logo_sub.setStyleSheet("font-size: 11px; color: #9CA3AF;")
         brand_layout.addWidget(lbl_logo_sub)
         brand_card.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -304,6 +314,18 @@ class MainWindow(QMainWindow):
         self.btn_role_switch.clicked.connect(self._toggle_role_interactive)
         b_layout.addWidget(self.btn_role_switch)
 
+        self.btn_customer_account = QPushButton("👤 تسجيل الدخول / حساب جديد")
+        self.btn_customer_account.setFixedHeight(28)
+        self.btn_customer_account.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_customer_account.clicked.connect(self._open_customer_account_dialog)
+        b_layout.addWidget(self.btn_customer_account)
+
+        self.btn_license_status = QPushButton("🛡️ فحص الترخيص...")
+        self.btn_license_status.setFixedHeight(28)
+        self.btn_license_status.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_license_status.clicked.connect(self._open_license_dialog)
+        b_layout.addWidget(self.btn_license_status)
+
         self.btn_version_about = QPushButton(f"ℹ️ الإصدار {get_full_version()}")
         self.btn_version_about.setFixedHeight(24)
         self.btn_version_about.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -339,6 +361,32 @@ class MainWindow(QMainWindow):
         # Top Command & Telemetry Bar (Sleek 48px)
         self.top_bar = StatusBarPanel(self)
         right_vbox.addWidget(self.top_bar)
+
+        # Read-Only Lockout Banner (Visible when license is expired/missing)
+        self.read_only_banner = QFrame()
+        self.read_only_banner.setStyleSheet("""
+            QFrame {
+                background-color: #2D1515;
+                border: 1px solid #EF4444;
+                border-radius: 6px;
+                padding: 4px 10px;
+            }
+        """)
+        ro_layout = QHBoxLayout(self.read_only_banner)
+        ro_layout.setContentsMargins(8, 2, 8, 2)
+        self.lbl_ro_msg = QLabel("🔒 وضع القراءة فقط نشط — اشتراك البرنامج غير مفعل أو انتهت صلاحيته. يمكنك تصفح البيانات والنسخ الاحتياطي، ولكن تم إيقاف إضافة عمليات جديدة.")
+        self.lbl_ro_msg.setStyleSheet("color: #FCA5A5; font-weight: bold; font-size: 11px;")
+        ro_layout.addWidget(self.lbl_ro_msg)
+
+        ro_layout.addStretch()
+
+        btn_ro_activate = QPushButton("تفعيل الترخيص الآن")
+        btn_ro_activate.setStyleSheet("background-color: #EF4444; color: white; font-weight: bold; border-radius: 4px; padding: 3px 10px; font-size: 11px;")
+        btn_ro_activate.clicked.connect(self._open_license_dialog)
+        ro_layout.addWidget(btn_ro_activate)
+
+        right_vbox.addWidget(self.read_only_banner)
+        self.read_only_banner.hide()
 
         # Central Stack of Workspaces (9 Pages)
         self.stack = QStackedWidget()
@@ -614,6 +662,137 @@ class MainWindow(QMainWindow):
         self.right_panel.printer_changed.connect(self.top_bar.set_current_printer)
         self.top_bar.printer_selected.connect(self.right_panel.set_selected_printer)
 
+        # Licensing & Updates Background Engine
+        self._update_license_ui()
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(2500, self._check_updates_and_heartbeat)
+
+    def _update_license_ui(self):
+        """Refreshes status pill, read-only banner, and window title based on license state."""
+        st = self.license_status
+        base_title = get_window_title()
+
+        if st.status == "ACTIVE":
+            plan_lbl = st.plan_name or st.plan_code or "اشتراك تجاري"
+            self.btn_license_status.setText(f"🛡️ الترخيص: نشط ({plan_lbl})")
+            self.btn_license_status.setStyleSheet("""
+                QPushButton {
+                    background-color: #06281E;
+                    color: #10B981;
+                    border: 1px solid #10B981;
+                    border-radius: 4px;
+                    font-size: 10px;
+                    font-weight: bold;
+                }
+                QPushButton:hover { background-color: #0B4232; }
+            """)
+            self.setWindowTitle(f"{base_title} [الترخيص: نشط ({plan_lbl})]")
+            self.read_only_banner.hide()
+
+        elif st.status == "GRACE_PERIOD":
+            self.btn_license_status.setText(f"⏳ فترة السماح ({st.grace_hours_remaining}h متبقية)")
+            self.btn_license_status.setStyleSheet("""
+                QPushButton {
+                    background-color: #2D2010;
+                    color: #F59E0B;
+                    border: 1px solid #F59E0B;
+                    border-radius: 4px;
+                    font-size: 10px;
+                    font-weight: bold;
+                }
+                QPushButton:hover { background-color: #453018; }
+            """)
+            self.setWindowTitle(f"{base_title} [تنبيه: فترة السماح ({st.grace_hours_remaining}h)]")
+            self.read_only_banner.hide()
+
+        else:
+            self.btn_license_status.setText("🔒 وضع القراءة فقط")
+            self.btn_license_status.setStyleSheet("""
+                QPushButton {
+                    background-color: #2D1515;
+                    color: #EF4444;
+                    border: 1px solid #EF4444;
+                    border-radius: 4px;
+                    font-size: 10px;
+                    font-weight: bold;
+                }
+                QPushButton:hover { background-color: #451E1E; }
+            """)
+            self.setWindowTitle(f"{base_title} [وضع القراءة فقط — الترخيص غير نشط]")
+            self.read_only_banner.show()
+
+        # Update customer account button
+        if hasattr(self, "btn_customer_account"):
+            if self.lic_client.is_logged_in():
+                cust = self.lic_client._customer_data or {}
+                shop = cust.get("shop_name") or cust.get("username") or "المشترك"
+                self.btn_customer_account.setText(f"👤 {shop}")
+                self.btn_customer_account.setStyleSheet("""
+                    QPushButton {
+                        background-color: #1A1A28;
+                        color: #60A5FA;
+                        border: 1px solid #3B82F6;
+                        border-radius: 4px;
+                        font-size: 11px;
+                        font-weight: bold;
+                    }
+                    QPushButton:hover {
+                        background-color: #2563EB;
+                        color: #FFFFFF;
+                    }
+                """)
+            else:
+                self.btn_customer_account.setText("👤 تسجيل الدخول / حساب جديد")
+                self.btn_customer_account.setStyleSheet("""
+                    QPushButton {
+                        background-color: #1C2333;
+                        color: #F59E0B;
+                        border: 1px dashed #F59E0B;
+                        border-radius: 4px;
+                        font-size: 11px;
+                        font-weight: bold;
+                    }
+                    QPushButton:hover {
+                        background-color: #F59E0B;
+                        color: #000000;
+                    }
+                """)
+
+    def _open_customer_account_dialog(self):
+        """Opens customer profile if logged in, or AuthDialog if not."""
+        if self.lic_client.is_logged_in():
+            dlg = CustomerProfileDialog(parent=self, client=self.lic_client)
+            dlg.exec()
+        else:
+            dlg = AuthDialog(parent=self, client=self.lic_client)
+            dlg.exec()
+        self.license_status = self.lic_client.get_license_status()
+        self._update_license_ui()
+
+    def _open_license_dialog(self):
+        """Opens license activation and subscription management dialog."""
+        dlg = LicenseDialog(parent=self, client=self.lic_client)
+        dlg.exec()
+        self.license_status = self.lic_client.get_license_status()
+        self._update_license_ui()
+
+    def _check_updates_and_heartbeat(self):
+        """Asynchronously validates license heartbeat and checks for software releases."""
+        try:
+            # 1. Heartbeat sync
+            self.lic_client.sync_heartbeat()
+            self.license_status = self.lic_client.get_license_status()
+            self._update_license_ui()
+
+            # 2. Release update check
+            checker = UpdateChecker()
+            has_update, update_info, _ = checker.check_for_updates()
+            if has_update and update_info:
+                up_dlg = UpdateDialog(update_info=update_info, parent=self, checker=checker)
+                up_dlg.exec()
+        except Exception as e:
+            logger.debug("Background update/heartbeat exception: %s", e)
+
     def _init_telegram_bot(self):
         """Starts background Telegram bot and connects signals."""
         self.bot = TradingTelegramBot(db=self.db)
@@ -714,15 +893,48 @@ class MainWindow(QMainWindow):
 
     def _open_f2_sale(self):
         """F2: Open Quick POS Sale Modal."""
+        if self.license_status and self.license_status.is_read_only:
+            ans = QMessageBox.warning(
+                self,
+                "🔒 وضع القراءة فقط نشط",
+                "إتمام المبيعات غير متاح في وضع القراءة فقط.\nيرجى تفعيل أو تجديد الترخيص للمتابعة.\n\nهل تود فتح نافذة التفعيل الآن؟",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes
+            )
+            if ans == QMessageBox.StandardButton.Yes:
+                self._open_license_dialog()
+            return
         self.tab_pos.open_quick_sale_modal()
 
     def _open_f3_trade_in(self):
         """F3: Open 1-Click Trade-In Unified Workspace."""
+        if self.license_status and self.license_status.is_read_only:
+            ans = QMessageBox.warning(
+                self,
+                "🔒 وضع القراءة فقط نشط",
+                "عمليات الاستبدال غير متاحة في وضع القراءة فقط.\nيرجى تفعيل أو تجديد الترخيص للمتابعة.\n\nهل تود فتح نافذة التفعيل الآن؟",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes
+            )
+            if ans == QMessageBox.StandardButton.Yes:
+                self._open_license_dialog()
+            return
         self.nav_buttons[3].setChecked(True)
         self._on_sidebar_nav_clicked(3)
 
     def _open_f4_trader_payment(self):
         """F4: Record Trader Credit Payment / Collection."""
+        if self.license_status and self.license_status.is_read_only:
+            ans = QMessageBox.warning(
+                self,
+                "🔒 وضع القراءة فقط نشط",
+                "تسجيل دفعات التجار غير متاح في وضع القراءة فقط.\nيرجى تفعيل أو تجديد الترخيص للمتابعة.\n\nهل تود فتح نافذة التفعيل الآن؟",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes
+            )
+            if ans == QMessageBox.StandardButton.Yes:
+                self._open_license_dialog()
+            return
         dlg = TraderPaymentDialog(db=self.db, current_role=self.current_role, current_user=self.current_user, parent=self)
         dlg.payment_recorded.connect(lambda _: self.tab_traders.refresh_all())
         dlg.exec()
@@ -760,6 +972,17 @@ class MainWindow(QMainWindow):
 
     def _on_checkout_from_inventory(self, dev_dict: dict):
         """Quick checkout triggered from the inventory table."""
+        if self.license_status and self.license_status.is_read_only:
+            ans = QMessageBox.warning(
+                self,
+                "🔒 وضع القراءة فقط نشط",
+                "إتمام المبيعات غير متاح في وضع القراءة فقط.\nيرجى تفعيل أو تجديد الترخيص للمتابعة.\n\nهل تود فتح نافذة التفعيل الآن؟",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes
+            )
+            if ans == QMessageBox.StandardButton.Yes:
+                self._open_license_dialog()
+            return
         self.nav_buttons[2].setChecked(True)
         self._on_sidebar_nav_clicked(2)
         dlg = PosSaleDialog(db=self.db, current_role=self.current_role, current_user=self.current_user, parent=self)

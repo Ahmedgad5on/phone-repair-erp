@@ -17,21 +17,34 @@ logger = logging.getLogger(__name__)
 # Single Source of Truth — Version Numbers
 # ==============================================================================
 VERSION_MAJOR = 4
-VERSION_MINOR = 6
+VERSION_MINOR = 7
 VERSION_PATCH = 0
 
 VERSION_TUPLE = (VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH)
 APP_VERSION = f"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_PATCH}"
 BUILD_DATE = "2026-11-14"
-BUILD_CODENAME = "Apex Precision"
+BUILD_CODENAME = "Titanium Enterprise"
 
-APP_NAME = "ProLab Smart Label Studio"
+APP_NAME = "ThermalLabPro Commercial ERP"
 APP_SUBTITLE = "Mobile Trading ERP & 203 DPI Thermal CAD"
 
 # ==============================================================================
 # Release Changelog & Update History
 # ==============================================================================
 RELEASE_HISTORY: List[Dict[str, Any]] = [
+    {
+        "version": "4.7.0",
+        "date": "2026-11-14",
+        "codename": "Titanium Enterprise",
+        "title": "المنظومة التجارية الشاملة للتراخيص وإصلاح التعرف اللوني العميق وتحديثات سطح المكتب",
+        "changes": [
+            "إصلاح نهائي لمشكلة قراءة ألوان أجهزة Apple وتجاوز كود حافة الشاشة السوداء (DeviceColor: 1) لكافة هواتف iPhone الحديثة.",
+            "إضافة ميزة الفحص اللوني المعمق (Deep Telemetry Query) لألوان الغلاف الخلفي (Housing & Enclosure Color).",
+            "دمج منظومة التراخيص السحابية المشفرة Ed25519 والتحقق الفوري مع وضع القراءة فقط عند انتهاء الاشتراك.",
+            "إطلاق تطبيق مدير التراخيص المستقل على سطح المكتب (ThermalLabPro License Manager).",
+            "إظهار نسبة بطارية iPhone بدقة على شاشة البرنامج وقوالب الطباعة الحرارية 203 DPI."
+        ]
+    },
     {
         "version": "4.6.0",
         "date": "2026-11-14",
@@ -103,7 +116,7 @@ def get_full_version() -> str:
 
 def get_window_title() -> str:
     """Returns official formatted application window title."""
-    return f"ProLab Mobile Trading ERP — v{APP_VERSION} (203 DPI Thermal CAD)"
+    return f"ThermalLabPro Commercial ERP — v{APP_VERSION} (203 DPI Thermal CAD)"
 
 
 def get_changelog() -> List[Dict[str, Any]]:

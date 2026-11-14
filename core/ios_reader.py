@@ -212,14 +212,19 @@ BUILTIN_APPLE_COLORS: Dict[str, str] = {
     "#f4d4d6": "Pink",
     "#f5c4c9": "Pink",
     "#eed2d5": "Pink",
-    # Green / Alpine Green / Midnight Green
+    # Green / Alpine Green / Midnight Green / Teal
     "#445847": "Alpine Green",
     "#506554": "Alpine Green",
     "#576b5b": "Alpine Green",
+    "#546857": "Alpine Green",
+    "#40594e": "Alpine Green",
     "#576856": "Midnight Green",
     "#4e5d4d": "Midnight Green",
     "#394c38": "Green",
     "#314230": "Green",
+    "#364935": "Green",
+    "#2f402e": "Green",
+    "#284435": "Green",
     "#3c4f3b": "Green",
     "#dbe8db": "Green",
     "#d1e2d1": "Green",
@@ -229,6 +234,17 @@ BUILTIN_APPLE_COLORS: Dict[str, str] = {
     "#cddcd0": "Green",
     "#cde1d1": "Green",
     "#c1dac6": "Green",
+    "#dbe6d8": "Green",
+    "#d4e2d2": "Green",
+    "#cbdcc9": "Green",
+    "#e1ebd8": "Green",
+    "#d9e7d4": "Green",
+    "#d0e0cf": "Green",
+    "#aee1cd": "Green",
+    "#b5d8c7": "Green",
+    "#3b676a": "Teal",
+    "#4c7a7d": "Teal",
+    "#82b2b5": "Teal",
     # Purple / Deep Purple
     "#867a9a": "Deep Purple",
     "#594f63": "Deep Purple",
@@ -475,6 +491,14 @@ def resolve_apple_color(
     lookup = color_map or BUILTIN_APPLE_COLORS
     part_colors = load_apple_part_colors()
 
+    # Detect modern iPhone (iPhone X, 11, 12, 13, 14, 15, 16, etc.) where DeviceColor == 1 is black bezel
+    is_modern_iphone = False
+    if product_type:
+        pt_clean = str(product_type).strip()
+        m = re.match(r"iPhone(\d+),", pt_clean)
+        if m and int(m.group(1)) >= 10:
+            is_modern_iphone = True
+
     # 1. Authoritative Apple Part Number / Model Number Lookup (e.g. MWJK2 -> Green)
     part_candidates = [model_number, part_number]
     for p_cand in part_candidates:
@@ -518,13 +542,15 @@ def resolve_apple_color(
             return clean_name
 
     # 5. Check numeric codes (e.g. '1', '#1', '2', '#2')
-    # Note: On iPhones starting from iPhone X (iPhone10,3+), all devices have black front bezels
-    # where DeviceColor == 1. Numeric code is checked after part number.
-    for cand in [raw_enclosure, raw_color, raw_housing]:
+    # Note: On iPhones starting from iPhone X (iPhone10,1+), all devices have black front bezels
+    # where DeviceColor == 1. We skip numeric 1 for raw_color on modern iPhones to prevent Green/Yellow/Pink being marked Black!
+    for cand in [raw_enclosure, raw_housing, raw_color]:
         if cand is not None:
             c_str = str(cand).strip()
             num_cand = c_str.lstrip("#").strip()
             if num_cand in APPLE_NUMERIC_COLORS:
+                if is_modern_iphone and num_cand == "1" and cand == raw_color:
+                    continue
                 return APPLE_NUMERIC_COLORS[num_cand]
 
     # 6. Fallback: if candidate was an unrecognized hex code, return uppercase hex
@@ -860,6 +886,30 @@ class IOSReader:
                 logger.debug(f"Failed to parse disk_usage XML: {e}")
         return None
 
+    def extract_color_telemetry(self, udid: Optional[str] = None) -> Optional[str]:
+        """
+        Deep-queries lockdown for casing/housing color keys if root plist had ambiguous color.
+        Checks:
+        - ideviceinfo -k DeviceEnclosureColor
+        - ideviceinfo -k HousingColor
+        - ideviceinfo -q com.apple.mobile.internal -k DeviceEnclosureColor
+        - ideviceinfo -q com.apple.mobile.internal -k HousingColor
+        """
+        queries = [
+            ["-k", "DeviceEnclosureColor"],
+            ["-k", "HousingColor"],
+            ["-q", "com.apple.mobile.internal", "-k", "DeviceEnclosureColor"],
+            ["-q", "com.apple.mobile.internal", "-k", "HousingColor"],
+        ]
+        for q in queries:
+            args = (["-u", udid] + q) if udid else q
+            code, out, _ = self._exec("ideviceinfo", args, timeout=2.5)
+            if code == 0 and out:
+                v = out.decode("utf-8", errors="replace").strip()
+                if v and v != "None" and v != "1" and not v.lower().startswith("error"):
+                    return v
+        return None
+
     def extract_device_telemetry(self, udid: Optional[str] = None) -> Tuple[Optional[DeviceSpecs], str]:
         """
         Executes 'ideviceinfo -x' to extract complete iOS specs and checks lockdown error states.
@@ -899,6 +949,28 @@ class IOSReader:
             storage_bytes = self.extract_storage_telemetry(active_udid)
             if storage_bytes:
                 specs.storage = parse_ios_commercial_storage(storage_bytes)
+
+        # Deep color resolution fallback for modern iPhones (iPhone X+) or Unknown colors
+        pt = str(raw_props.get("ProductType") or "")
+        is_modern = False
+        m_pt = re.match(r"iPhone(\d+),", pt.strip())
+        if m_pt and int(m_pt.group(1)) >= 10:
+            is_modern = True
+
+        if (specs.color in ("Unknown", "Black") and is_modern) or specs.color == "Unknown":
+            deep_color = self.extract_color_telemetry(active_udid)
+            if deep_color:
+                resolved = resolve_apple_color(
+                    raw_color=None,
+                    raw_enclosure=deep_color,
+                    color_map=self.colors,
+                    raw_housing=deep_color,
+                    model_number=raw_props.get("ModelNumber"),
+                    part_number=specs.model_code,
+                    product_type=pt
+                )
+                if resolved and resolved != "Unknown":
+                    specs.color = resolved
 
         battery_health, battery_cycles = self.extract_battery_telemetry(active_udid)
         if battery_health is None:
