@@ -7,3 +7,9 @@ exports/labels/*.pdf
 data/*.db
 data/*.db-*
 .pytest_cache/
+build/
+dist/
+dist_installer/
+exe_err.txt
+exe_out.txt
+server_data/
