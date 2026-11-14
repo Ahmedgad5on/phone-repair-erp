@@ -118,43 +118,148 @@ BUILTIN_RAM_SPECS: Dict[str, str] = {
 }
 
 BUILTIN_APPLE_COLORS: Dict[str, str] = {
+    # Natural Titanium
     "#505e6b": "Natural Titanium",
     "#535150": "Natural Titanium",
     "#5f5e5c": "Natural Titanium",
+    "#8a857e": "Natural Titanium",
+    "#938f88": "Natural Titanium",
+    "#837f79": "Natural Titanium",
+    "#918c85": "Natural Titanium",
+    # Desert Titanium
     "#bca593": "Desert Titanium",
     "#c5b09d": "Desert Titanium",
     "#d1bfae": "Desert Titanium",
+    "#c4b19e": "Desert Titanium",
+    "#d5c4b4": "Desert Titanium",
+    # Black Titanium / Space Black / Black / Jet Black
     "#35373a": "Black Titanium",
     "#3c3b37": "Black Titanium",
     "#2b2b2c": "Black Titanium",
+    "#343335": "Black Titanium",
+    "#2d2d2f": "Black Titanium",
+    "#1f2020": "Space Black",
+    "#2b2c2e": "Black",
+    "#343538": "Black",
+    "#000000": "Black",
+    "#0a0a0a": "Jet Black",
+    # White Titanium / Starlight / White
     "#dededc": "White Titanium",
     "#e4e4e2": "White Titanium",
-    "#3f4650": "Blue Titanium",
-    "#39424e": "Blue Titanium",
-    "#232a31": "Midnight",
-    "#1c232e": "Midnight",
+    "#f2f1ed": "White Titanium",
     "#faf7f2": "Starlight",
     "#f0ede6": "Starlight",
-    "#343335": "Space Gray",
+    "#f5f5f7": "White",
+    "#f5f5f0": "White",
+    "#ffffff": "White",
+    # Blue Titanium / Pacific Blue / Sierra Blue / Blue / Ultramarine
+    "#3f4650": "Blue Titanium",
+    "#39424e": "Blue Titanium",
+    "#3c444f": "Blue Titanium",
+    "#275878": "Pacific Blue",
+    "#2d5e7d": "Pacific Blue",
+    "#214358": "Blue",
+    "#2a526d": "Blue",
+    "#004879": "Blue",
+    "#0f4c81": "Blue",
+    "#a0b3c6": "Blue",
+    "#93a7bc": "Blue",
+    "#9db2c7": "Blue",
+    "#d4e0e4": "Blue",
+    "#cfdde2": "Blue",
+    "#cad9de": "Blue",
+    "#c5d5dc": "Blue",
+    "#a7c1d9": "Sierra Blue",
+    "#9bb8d3": "Sierra Blue",
+    "#4a80b7": "Blue",
+    "#6a7fa2": "Ultramarine",
+    "#597099": "Ultramarine",
+    "#5b729e": "Ultramarine",
+    # Teal
+    "#a1cad0": "Teal",
+    "#8dbdc4": "Teal",
+    "#9dc5cc": "Teal",
+    # Midnight
+    "#232a31": "Midnight",
+    "#1c232e": "Midnight",
+    "#282f37": "Midnight",
+    # Space Gray / Graphite
     "#3b3b3c": "Space Gray",
     "#3b444b": "Space Gray",
     "#4b4845": "Space Gray",
-    "#1f2020": "Space Black",
+    "#4c4b49": "Graphite",
+    "#434240": "Graphite",
+    "#54524f": "Graphite",
+    # Silver
     "#e1e4e3": "Silver",
     "#e3e4e5": "Silver",
-    "#f5f5f0": "Silver",
+    # Gold / Rose Gold
     "#d4c9b1": "Gold",
     "#f9e5c9": "Gold",
     "#fad7bd": "Gold",
+    "#f4e8ce": "Gold",
+    "#f3e4ce": "Gold",
+    "#f4d8b8": "Gold",
     "#e8c7c8": "Rose Gold",
     "#b9928f": "Rose Gold",
+    # Pink
+    "#fae0dc": "Pink",
+    "#f8d7d2": "Pink",
+    "#f5cec7": "Pink",
+    "#edd8d8": "Pink",
+    "#ebd4d5": "Pink",
+    "#e8d0d1": "Pink",
+    "#f4d4d6": "Pink",
+    "#f5c4c9": "Pink",
+    "#eed2d5": "Pink",
+    # Green / Alpine Green / Midnight Green
+    "#445847": "Alpine Green",
+    "#506554": "Alpine Green",
+    "#576b5b": "Alpine Green",
+    "#576856": "Midnight Green",
+    "#4e5d4d": "Midnight Green",
+    "#394c38": "Green",
+    "#314230": "Green",
+    "#3c4f3b": "Green",
+    "#dbe8db": "Green",
+    "#d1e2d1": "Green",
+    "#c7dcc7": "Green",
+    "#d6e2d5": "Green",
+    "#d1ded0": "Green",
+    "#cddcd0": "Green",
+    "#cde1d1": "Green",
+    "#c1dac6": "Green",
+    # Purple / Deep Purple
+    "#867a9a": "Deep Purple",
+    "#594f63": "Deep Purple",
+    "#4c4255": "Deep Purple",
+    "#5e5369": "Deep Purple",
+    "#e3dbe7": "Purple",
+    "#ded3e4": "Purple",
+    "#dacde0": "Purple",
+    "#b9b2d4": "Purple",
+    "#afa7cc": "Purple",
+    "#d1cdda": "Purple",
+    "#c8c3d2": "Purple",
+    # Yellow / Coral
+    "#f4e8ce": "Yellow",
+    "#f1e4c7": "Yellow",
+    "#ede0c2": "Yellow",
+    "#fde883": "Yellow",
+    "#fae372": "Yellow",
+    "#fde679": "Yellow",
+    "#ffe680": "Yellow",
+    "#fde068": "Yellow",
+    "#fec63d": "Yellow",
+    "#ff6e5a": "Coral",
+    "#ff725c": "Coral",
+    # (PRODUCT)RED
     "#bf0012": "(PRODUCT)RED",
     "#e11c2a": "(PRODUCT)RED",
-    "#275878": "Pacific Blue",
-    "#a7c1d9": "Sierra Blue",
-    "#445847": "Alpine Green",
-    "#576856": "Midnight Green",
-    "#867a9a": "Deep Purple",
+    "#ff2d55": "(PRODUCT)RED",
+    "#c8102e": "(PRODUCT)RED",
+    "#d8252e": "(PRODUCT)RED",
+    "#ba0c2f": "(PRODUCT)RED",
 }
 
 APPLE_NUMERIC_COLORS: Dict[str, str] = {
@@ -166,6 +271,8 @@ APPLE_NUMERIC_COLORS: Dict[str, str] = {
     "6": "(PRODUCT)RED",
     "7": "Blue",
     "8": "Coral",
+    "9": "Midnight",
+    "10": "Starlight",
 }
 
 BUILTIN_APPLE_REGIONS: Dict[str, str] = {
@@ -293,44 +400,94 @@ def decode_apple_region(region_code: Optional[str]) -> str:
     return clean
 
 
+def _hex_to_rgb(hex_str: str) -> Optional[Tuple[int, int, int]]:
+    """Converts a #RRGGBB or RRGGBB string to (R, G, B) tuple."""
+    clean = hex_str.strip().lstrip("#")
+    if len(clean) == 6:
+        try:
+            return int(clean[0:2], 16), int(clean[2:4], 16), int(clean[4:6], 16)
+        except ValueError:
+            return None
+    return None
+
+
+def _find_nearest_apple_color(hex_str: str, lookup: Dict[str, str], threshold: float = 48.0) -> Optional[str]:
+    """Finds the closest known Apple marketing color using Euclidean RGB distance."""
+    rgb = _hex_to_rgb(hex_str)
+    if not rgb:
+        return None
+    r1, g1, b1 = rgb
+    best_match = None
+    min_dist = float("inf")
+    for ref_hex, name in lookup.items():
+        ref_rgb = _hex_to_rgb(ref_hex)
+        if not ref_rgb:
+            continue
+        r2, g2, b2 = ref_rgb
+        dist = ((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2) ** 0.5
+        if dist < min_dist:
+            min_dist = dist
+            best_match = name
+    if min_dist <= threshold:
+        return best_match
+    return None
+
+
 def resolve_apple_color(
     raw_color: Optional[str],
     raw_enclosure: Optional[str] = None,
-    color_map: Optional[Dict[str, str]] = None
+    color_map: Optional[Dict[str, str]] = None,
+    raw_housing: Optional[str] = None
 ) -> str:
     """
-    Resolves Apple DeviceColor/DeviceEnclosureColor hex codes or string identifiers
+    Resolves Apple DeviceColor/DeviceEnclosureColor/HousingColor hex codes or string identifiers
     into official human-readable marketing color names.
     """
     lookup = color_map or BUILTIN_APPLE_COLORS
+    candidates = [raw_enclosure, raw_color, raw_housing]
 
-    # 1. Check hex values in enclosure or color
-    for candidate in [raw_enclosure, raw_color]:
-        if candidate and candidate.strip().startswith("#"):
-            hex_lower = candidate.strip().lower()
-            if hex_lower in lookup:
-                return lookup[hex_lower]
+    # 1. First check if any candidate is a numeric code (e.g. '1', '#1', '2', '#2')
+    for cand in candidates:
+        if cand is not None:
+            c_str = str(cand).strip()
+            num_cand = c_str.lstrip("#").strip()
+            if num_cand in APPLE_NUMERIC_COLORS:
+                return APPLE_NUMERIC_COLORS[num_cand]
 
-    # 2. Check numeric color codes (e.g. DeviceColor '1' -> 'Black')
-    for candidate in [raw_color, raw_enclosure]:
-        if candidate is not None:
-            c_str = str(candidate).strip()
-            if c_str in APPLE_NUMERIC_COLORS:
-                return APPLE_NUMERIC_COLORS[c_str]
+    # 2. Check exact hex matches in lookup (e.g. '#505e6b')
+    for cand in candidates:
+        if cand and str(cand).strip().startswith("#"):
+            hex_clean = str(cand).strip().lower()
+            if hex_clean in lookup:
+                return lookup[hex_clean]
 
-    # 3. Check string names
-    candidate_str = (raw_enclosure or raw_color or "").strip()
-    if not candidate_str:
-        return "Unknown"
+    # 3. Check nearest Euclidean RGB color match for hex codes
+    for cand in candidates:
+        if cand and str(cand).strip().startswith("#"):
+            nearest = _find_nearest_apple_color(str(cand).strip(), lookup)
+            if nearest:
+                return nearest
 
-    if candidate_str.startswith("#"):
-        # Unknown hex code: return uppercase hex
-        return candidate_str.upper()
+    # 4. Check known marketing string names (e.g. 'Natural Titanium', 'Midnight', 'desert_titanium')
+    for cand in candidates:
+        if cand:
+            s = str(cand).strip()
+            if not s or s.startswith("#"):
+                continue
+            clean_name = s.replace("_", " ").replace("-", " ").title()
+            if "Product" in clean_name and "Red" in clean_name:
+                return "(PRODUCT)RED"
+            for v in lookup.values():
+                if clean_name.lower() == v.lower():
+                    return v
+            return clean_name
 
-    clean_name = candidate_str.replace("_", " ").replace("-", " ").title()
-    if "Product" in clean_name and "Red" in clean_name:
-        return "(PRODUCT)RED"
-    return clean_name
+    # 5. Fallback: if candidate was an unrecognized hex code, return uppercase hex
+    for cand in candidates:
+        if cand and str(cand).strip().startswith("#"):
+            return str(cand).strip().upper()
+
+    return "Unknown"
 
 
 def parse_apple_part_and_region(model_num: Optional[str], region_info: Optional[str]) -> Tuple[str, str]:
@@ -497,7 +654,11 @@ def parse_ideviceinfo_xml(xml_bytes_or_str: Any) -> Optional[DeviceSpecs]:
 
     device_color = str(plist.get("DeviceColor") or "")
     enclosure_color = str(plist.get("DeviceEnclosureColor") or "")
-    color = resolve_apple_color(device_color, enclosure_color, colors)
+    housing_color = str(plist.get("HousingColor") or "")
+    back_glass_color = str(plist.get("BackGlassColor") or "")
+    cover_glass_color = str(plist.get("CoverGlassColor") or "")
+    raw_housing = housing_color or back_glass_color or cover_glass_color
+    color = resolve_apple_color(device_color, enclosure_color, colors, raw_housing=raw_housing)
 
     os_version = f"iOS {plist.get('ProductVersion', '')}".strip()
     serial_number = str(plist.get("SerialNumber") or "")
@@ -508,6 +669,17 @@ def parse_ideviceinfo_xml(xml_bytes_or_str: Any) -> Optional[DeviceSpecs]:
     raw_imei1 = str(plist.get("InternationalMobileEquipmentIdentity") or "")
     clean_imei1 = re.sub(r"\D", "", raw_imei1)
     imei1 = clean_imei1 if (len(clean_imei1) == 15 and validate_luhn(clean_imei1)) else clean_imei1
+
+    # If color is still Unknown or a raw hex code, query TAC-to-color mapping if IMEI is present
+    if (color == "Unknown" or color.startswith("#")) and len(imei1) >= 8:
+        try:
+            from core.database import DatabaseManager
+            db = DatabaseManager()
+            tac_color = db.lookup_tac_color(imei1[:8], marketing_name)
+            if tac_color:
+                color = tac_color
+        except Exception:
+            pass
 
     imei2_val = plist.get("InternationalMobileEquipmentIdentity2")
     if imei2_val:
@@ -667,6 +839,8 @@ class IOSReader:
                 specs.storage = parse_ios_commercial_storage(storage_bytes)
 
         battery_health, battery_cycles = self.extract_battery_telemetry(active_udid)
+        if battery_health is None:
+            battery_health = self.extract_battery_charge_level(active_udid)
         specs.battery_health = battery_health
         specs.battery_cycles = battery_cycles
 
@@ -698,6 +872,33 @@ class IOSReader:
         # Note: ideviceinfo -q com.apple.mobile.battery provides BatteryCurrentCapacity
         # (current charge level %), NOT Battery Health %. We strictly return None for health.
         return None, None
+
+    def extract_battery_charge_level(self, udid: Optional[str] = None) -> Optional[int]:
+        """
+        Fallback when Battery Health diagnostics are unavailable: queries com.apple.mobile.battery
+        for BatteryCurrentCapacity (current charge level 0-100%).
+        """
+        args = ["-q", "com.apple.mobile.battery", "-x"]
+        if udid:
+            args = ["-u", udid] + args
+        code, out, _ = self._exec("ideviceinfo", args, timeout=3.0)
+        if code == 0 and out:
+            try:
+                xml_start = out.find(b"<?xml")
+                if xml_start == -1:
+                    xml_start = out.find(b"<plist")
+                xml_end = out.rfind(b"</plist>")
+                payload = out[xml_start : xml_end + 8] if (xml_start != -1 and xml_end != -1) else out
+                bat_plist = plistlib.loads(payload)
+                if isinstance(bat_plist, dict):
+                    cap = bat_plist.get("BatteryCurrentCapacity") or bat_plist.get("CurrentCapacity")
+                    if cap is not None:
+                        val = int(round(float(cap)))
+                        if 0 <= val <= 100:
+                            return val
+            except Exception as e:
+                logger.debug(f"Failed to parse battery domain XML: {e}")
+        return None
 
     def start_polling(
         self,

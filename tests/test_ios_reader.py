@@ -3,9 +3,11 @@ Unit tests for iOS Extraction Engine (core/ios_reader.py).
 Tests Apple ProductType mappings up to iPhone 16 series, decimal disk capacity conversions,
 plist XML deserialization, battery health diagnostics, region decoding, and color resolution.
 """
+import os
 import unittest
-
 from unittest.mock import patch
+
+from core.models import DeviceSpecs
 
 from core.ios_reader import (
     resolve_apple_model,
@@ -312,6 +314,100 @@ class TestIosReaderTelemetryExtraction(unittest.TestCase):
             specs, status = reader.extract_device_telemetry("00008030-001159420292802E")
             self.assertIsNone(specs)
             self.assertEqual(status, "Device Locked - Enter Passcode on iPhone")
+
+    def test_resolve_apple_color_numeric_and_hex_variants(self):
+        """Verifies numeric codes (#1, #2), exact hex, nearest hex, and names resolve correctly."""
+        # Numeric codes with or without hash prefix
+        self.assertEqual(resolve_apple_color("#1"), "Black")
+        self.assertEqual(resolve_apple_color("1"), "Black")
+        self.assertEqual(resolve_apple_color("#2"), "White")
+        self.assertEqual(resolve_apple_color("2"), "White")
+
+        # Exact titanium hexes
+        self.assertEqual(resolve_apple_color("#505e6b"), "Natural Titanium")
+        self.assertEqual(resolve_apple_color("#bca593"), "Desert Titanium")
+        self.assertEqual(resolve_apple_color("#35373a"), "Black Titanium")
+
+        # Nearest Euclidean matching for slight shade variants
+        self.assertEqual(resolve_apple_color("#515e6c"), "Natural Titanium")
+
+        # String marketing identifiers
+        self.assertEqual(resolve_apple_color("desert_titanium"), "Desert Titanium")
+        self.assertEqual(resolve_apple_color("natural-titanium"), "Natural Titanium")
+
+    def test_apple_specs_is_apple_and_label_battery_rendering(self):
+        """Verifies is_apple property and battery element rendering on Apple devices."""
+        from core.label_template_model import LabelElement
+        from core.label_template_renderer import should_render_element
+
+        specs = DeviceSpecs(
+            connection_type="ios",
+            device_id="TEST-UDID",
+            brand="Apple",
+            marketing_name="iPhone 15 Pro",
+            model_code="MYWV3LL/A",
+            storage="256GB",
+            ram="8GB",
+            color="Natural Titanium",
+            os_version="iOS 17.5",
+            serial_number="DNPZ12345678",
+            imei1="352123456789012",
+            battery_health=94
+        )
+        self.assertTrue(specs.is_apple)
+
+        bat_el = LabelElement(id="c_bat", field_key="battery_life", title="Bat", content="100%")
+        self.assertTrue(should_render_element(bat_el, specs))
+
+        # Even if battery_health is None on an Apple device, should_render_element respects Apple device
+        specs_no_bat = DeviceSpecs(
+            connection_type="ios",
+            device_id="TEST-UDID-2",
+            brand="Apple",
+            marketing_name="iPhone 13",
+            model_code="MLPF3LL/A",
+            storage="128GB",
+            ram="4GB",
+            color="Midnight",
+            os_version="iOS 16.0",
+            serial_number="F2LZ98765432",
+            imei1="359876543210987",
+            battery_health=None
+        )
+        self.assertTrue(specs_no_bat.is_apple)
+        self.assertTrue(should_render_element(bat_el, specs_no_bat))
+
+    def test_database_tac_color_learning_and_lookup(self):
+        """Verifies TAC-to-color mapping can be learned and retrieved from DatabaseManager."""
+        from core.database import DatabaseManager
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        try:
+            db = DatabaseManager(tmp_path)
+            # Learn TAC
+            ok = db.learn_tac_color("35396810", "iPhone 11", "Black")
+            self.assertTrue(ok)
+
+            # Lookup by TAC + Model
+            found = db.lookup_tac_color("35396810", "iPhone 11")
+            self.assertEqual(found, "Black")
+
+            # Lookup by TAC only
+            found_tac = db.lookup_tac_color("353968109991662")
+            self.assertEqual(found_tac, "Black")
+
+            # Non-existent TAC returns None
+            self.assertIsNone(db.lookup_tac_color("99999999"))
+            db.close()
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
 
 
 if __name__ == "__main__":

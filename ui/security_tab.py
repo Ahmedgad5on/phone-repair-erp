@@ -18,6 +18,8 @@ from PyQt6.QtWidgets import (
 from core.database import DatabaseManager, DEFAULT_CIPHER_KEY
 from core.driver_manager import DriverDoctorDialog, check_driver_health
 from core.paths import get_app_data_dir
+from core.version import get_full_version, get_version, BUILD_CODENAME
+from ui.about_dialog import AboutDialog
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +157,52 @@ class SecurityTab(QWidget):
         form_grid.addWidget(self.txt_owner_chat_id, 7, 1)
 
         r_layout.addLayout(form_grid)
+
+        # Version & Build Information Card
+        ver_card = QFrame()
+        ver_card.setStyleSheet("""
+            background-color: #121217;
+            border: 1px solid #282834;
+            border-radius: 6px;
+            padding: 8px;
+            margin-top: 6px;
+        """)
+        v_box = QVBoxLayout(ver_card)
+        v_box.setContentsMargins(8, 8, 8, 8)
+        v_box.setSpacing(6)
+
+        v_top = QHBoxLayout()
+        lbl_v_title = QLabel("🏷️ إصدار النظام الحالي:")
+        lbl_v_title.setStyleSheet("font-weight: bold; color: #D4AF37; font-size: 11px;")
+        v_top.addWidget(lbl_v_title)
+
+        lbl_v_val = QLabel(f"{get_full_version()}  •  {BUILD_CODENAME}")
+        lbl_v_val.setStyleSheet("color: #10B981; font-weight: bold; font-size: 11px;")
+        v_top.addWidget(lbl_v_val)
+        v_top.addStretch()
+        v_box.addLayout(v_top)
+
+        btn_view_changelog = QPushButton("📋 استعراض سجل التحديثات والتغييرات (Changelog)")
+        btn_view_changelog.setFixedHeight(28)
+        btn_view_changelog.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_view_changelog.setStyleSheet("""
+            QPushButton {
+                background-color: #1A1A24;
+                color: #D4AF37;
+                border: 1px solid #D4AF37;
+                border-radius: 4px;
+                font-size: 11px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #D4AF37;
+                color: #0D0D11;
+            }
+        """)
+        btn_view_changelog.clicked.connect(self._open_about_dialog)
+        v_box.addWidget(btn_view_changelog)
+        r_layout.addWidget(ver_card)
+
         r_layout.addStretch()
 
         self.btn_save_settings = QPushButton("💾 حفظ وتطبيق الإعدادات")
@@ -229,6 +277,10 @@ class SecurityTab(QWidget):
 
     def _open_driver_doctor(self):
         dlg = DriverDoctorDialog(parent=self)
+        dlg.exec()
+
+    def _open_about_dialog(self):
+        dlg = AboutDialog(parent=self)
         dlg.exec()
 
     def _create_instant_backup(self):

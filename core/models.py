@@ -41,6 +41,16 @@ class DeviceSpecs:
     remarks: str = ""
     raw_properties: Dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def is_apple(self) -> bool:
+        """Returns True if this device is an Apple / iOS device."""
+        return (
+            (self.brand or "").strip().lower() == "apple"
+            or self.connection_type == "ios"
+            or "iphone" in (self.marketing_name or "").lower()
+            or "ipad" in (self.marketing_name or "").lower()
+        )
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert dataclass to dictionary."""
         return asdict(self)

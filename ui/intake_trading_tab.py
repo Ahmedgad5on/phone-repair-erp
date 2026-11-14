@@ -594,7 +594,21 @@ class IntakeTradingTab(QWidget):
         if specs.ram:
             self.cb_ram.setCurrentText(specs.ram)
         if specs.color:
-            self.txt_color.setText(specs.color)
+            target_color = specs.color.strip()
+            matched_idx = -1
+            for i in range(self.cb_color.count()):
+                item_txt = self.cb_color.itemText(i).lower()
+                if target_color.lower() in item_txt or (
+                    "(" in item_txt and any(part.strip().lower() == target_color.lower() for part in item_txt.split("(")[-1].replace(")", "").split("/"))
+                ):
+                    matched_idx = i
+                    break
+            if matched_idx >= 0:
+                self.cb_color.setCurrentIndex(matched_idx)
+            else:
+                self.cb_color.setCurrentText(target_color)
+            if self.txt_color:
+                self.txt_color.setText(self.cb_color.currentText() or target_color)
         if specs.serial_number:
             self.txt_serial.setText(specs.serial_number)
         if specs.imei1:
@@ -655,6 +669,13 @@ class IntakeTradingTab(QWidget):
 
         rec = self._build_device_record()
         try:
+            # Auto-learn TAC-to-color mapping if IMEI1 and color are valid
+            if rec.imei1 and len(rec.imei1.strip()) >= 8 and rec.color:
+                try:
+                    self.db.learn_tac_color(rec.imei1.strip()[:8], rec.model_name, rec.color)
+                except Exception as e_tac:
+                    logger.debug("Failed to auto-learn TAC color: %s", e_tac)
+
             dev_id = self.db.insert_device(
                 device=rec,
                 user_role=self.current_role,

@@ -23,15 +23,22 @@ logger = logging.getLogger(__name__)
 def should_render_element(el: LabelElement, specs: Optional[DeviceSpecs]) -> bool:
     """
     Checks whether a template element should be included in label rendering.
-    Rule: Battery health (battery_life) is exclusive to iPhone / Apple devices.
-    If an Android / non-Apple phone is connected, battery_life is omitted completely.
+    Rule: Battery health (battery_life) is rendered for all Apple / iPhone devices
+    or whenever battery_health is explicitly present in device specs.
     """
-    if el.field_key == "battery_life":
-        if specs is not None and getattr(specs, "marketing_name", ""):
-            # Check if this connected device is Apple / iPhone
-            is_apple = getattr(specs, "is_apple", False)
-            if not is_apple:
-                return False
+    if el.field_key in ("battery_life", "battery", "battery_health", "battery_pct"):
+        if specs is not None:
+            is_apple = (
+                getattr(specs, "is_apple", False)
+                or (getattr(specs, "brand", "") or "").lower() == "apple"
+                or getattr(specs, "connection_type", "") == "ios"
+                or "iphone" in (getattr(specs, "marketing_name", "") or "").lower()
+                or "ipad" in (getattr(specs, "marketing_name", "") or "").lower()
+            )
+            # If battery health is explicitly recorded or this is an Apple device, render it
+            if getattr(specs, "battery_health", None) is not None:
+                return True
+            return is_apple
     return True
 
 

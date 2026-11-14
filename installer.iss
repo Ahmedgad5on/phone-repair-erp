@@ -2,7 +2,7 @@
 ; Creates a complete standalone Windows Setup Installer (.exe) with desktop shortcuts and driver registration.
 
 #define MyAppName "Thermal Lab Pro"
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "4.6.0"
 #define MyAppPublisher "Thermal Lab Systems"
 #define MyAppExeName "ThermalLabPro.exe"
 #define MySourceDir "dist\ThermalLabPro"
@@ -15,7 +15,7 @@ AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 OutputDir=dist_installer
-OutputBaseFilename=ThermalLabPro_Setup_v1.1.0
+OutputBaseFilename=ThermalLabPro_Setup_v4.6.0
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern

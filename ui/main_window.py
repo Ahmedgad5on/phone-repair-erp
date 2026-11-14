@@ -62,6 +62,8 @@ from ui.pin_dialog import PinDialog
 from ui.print_labels_canvas import PrintLabelsCanvas
 from ui.printer_panel import PrinterManagerPanel
 from ui.styles import load_theme
+from ui.about_dialog import AboutDialog
+from core.version import get_version, get_window_title, get_full_version
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +76,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self, db: Optional[DatabaseManager] = None, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("ProLab Mobile Trading ERP — Studio 4.5.0 (203 DPI Thermal CAD)")
+        self.setWindowTitle(get_window_title())
         self.setMinimumSize(1280, 760)
         self.resize(1480, 920)
 
@@ -125,9 +127,11 @@ class MainWindow(QMainWindow):
         lbl_logo_title.setStyleSheet("font-size: 15px; font-weight: 800; color: #D4AF37;")
         brand_layout.addWidget(lbl_logo_title)
 
-        lbl_logo_sub = QLabel("Mobile Trading Studio 4.5.0")
+        lbl_logo_sub = QLabel(f"Mobile Trading Studio v{get_version()}")
         lbl_logo_sub.setStyleSheet("font-size: 11px; color: #9CA3AF;")
         brand_layout.addWidget(lbl_logo_sub)
+        brand_card.setCursor(Qt.CursorShape.PointingHandCursor)
+        brand_card.mousePressEvent = lambda e: self._show_about_dialog()
         sidebar_layout.addWidget(brand_card)
 
         # Connected Device Live Telemetry Card (Fixed Height to Prevent Vertical Clipping)
@@ -255,10 +259,10 @@ class MainWindow(QMainWindow):
         # Select first tab by default
         self.nav_buttons[0].setChecked(True)
 
-        # Bottom Sidebar Utilities (Thermal Print + Role Switcher)
+        # Bottom Sidebar Utilities (Thermal Print + Role Switcher + Version)
         bottom_box = QFrame()
         bottom_box.setObjectName("card")
-        bottom_box.setMinimumHeight(86)
+        bottom_box.setMinimumHeight(118)
         bottom_box.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         b_layout = QVBoxLayout(bottom_box)
         b_layout.setContentsMargins(8, 8, 8, 8)
@@ -299,6 +303,27 @@ class MainWindow(QMainWindow):
         """)
         self.btn_role_switch.clicked.connect(self._toggle_role_interactive)
         b_layout.addWidget(self.btn_role_switch)
+
+        self.btn_version_about = QPushButton(f"ℹ️ الإصدار {get_full_version()}")
+        self.btn_version_about.setFixedHeight(24)
+        self.btn_version_about.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_version_about.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: #9CA3AF;
+                border: 1px solid #282834;
+                border-radius: 4px;
+                font-size: 10px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1A1A24;
+                color: #10B981;
+                border-color: #10B981;
+            }
+        """)
+        self.btn_version_about.clicked.connect(self._show_about_dialog)
+        b_layout.addWidget(self.btn_version_about)
 
         sidebar_layout.addWidget(bottom_box)
         main_hbox.addWidget(self.sidebar_frame)
@@ -672,6 +697,11 @@ class MainWindow(QMainWindow):
                 else:
                     QMessageBox.warning(self, "خطأ في الرمز", "رمز الدخول غير صحيح!")
 
+    def _show_about_dialog(self):
+        """Displays software version, build info, and release changelog."""
+        dlg = AboutDialog(self)
+        dlg.exec()
+
     # -----------------------------------------------------------------------
     # Shortcut Event Handlers (F1 - F5, Ctrl+P)
     # -----------------------------------------------------------------------
@@ -955,9 +985,10 @@ class MainWindow(QMainWindow):
 
         elements = [
             LabelElement(id="c_model", field_key="model_name", title="Model", content="Model Name", show_title=False, x_mm=1.0, y_mm=1.5, font_size=8, bold=True),
-            LabelElement(id="c_cap", field_key="capacity", title="Cap", content="128GB / 8GB RAM", show_title=False, x_mm=1.0, y_mm=5.5, font_size=7),
-            LabelElement(id="c_col", field_key="color", title="Col", content="Color", show_title=False, x_mm=16.0, y_mm=5.5, font_size=7),
-            LabelElement(id="c_cipher", field_key="secret_cost_cipher", title="Cipher", content="LHABB", show_title=False, x_mm=26.0, y_mm=5.5, font_size=7, bold=True),
+            LabelElement(id="c_cap", field_key="capacity", title="Cap", content="128GB", show_title=False, x_mm=1.0, y_mm=5.5, font_size=7),
+            LabelElement(id="c_bat", field_key="battery_life", title="Bat", content="100%", show_title=True, x_mm=12.0, y_mm=5.5, font_size=7),
+            LabelElement(id="c_col", field_key="color", title="Col", content="Color", show_title=False, x_mm=23.0, y_mm=5.5, font_size=7),
+            LabelElement(id="c_cipher", field_key="secret_cost_cipher", title="Cipher", content="LHABB", show_title=False, x_mm=31.0, y_mm=5.5, font_size=7, bold=True),
             LabelElement(id="c_bc", field_key="imei", title="IMEI", content="352123456789012", show_title=False, is_barcode=True, x_mm=1.0, y_mm=9.5, font_size=7, height_mm=11.0),
         ]
 

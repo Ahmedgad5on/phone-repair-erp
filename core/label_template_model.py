@@ -283,8 +283,10 @@ def resolve_field_value(field_key: str, specs: Optional[DeviceSpecs], stock_numb
         return raw.get("RegulatoryModelNumber") or (specs.model_code.split("/")[0] if "/" in specs.model_code else "A2403")
     elif field_key == "charge_cycles":
         return str(specs.battery_cycles) if specs.battery_cycles is not None else "142"
-    elif field_key == "battery_life":
-        return f"{specs.battery_health}%" if specs.battery_health is not None else "98%"
+    elif field_key in ("battery_life", "battery", "battery_health", "battery_pct"):
+        if specs is not None and specs.battery_health is not None:
+            return f"{specs.battery_health}%"
+        return "100%"
     elif field_key == "remarks":
         return specs.remarks or "Clean"
     elif field_key == "model_capacity_color":
@@ -369,6 +371,7 @@ def create_preset_templates() -> Dict[str, PrintLabelTemplate]:
         elements=[
             LabelElement(id="c_model", field_key="model_name", title="Model", content="Model Name", show_title=False, x_mm=1.0, y_mm=1.5, font_size=8, bold=True),
             LabelElement(id="c_cap", field_key="capacity", title="Storage", content="128GB", show_title=True, x_mm=1.0, y_mm=5.2, font_size=7),
+            LabelElement(id="c_bat", field_key="battery_life", title="Bat", content="100%", show_title=True, x_mm=19.0, y_mm=5.2, font_size=7),
             LabelElement(id="c_col", field_key="color", title="Color", content="Color", show_title=True, x_mm=1.0, y_mm=8.8, font_size=7),
             LabelElement(id="c_bc", field_key="imei", title="IMEI", content="352123456789012", show_title=False, is_barcode=True, x_mm=1.0, y_mm=12.5, font_size=7, height_mm=9.5)
         ]
@@ -387,6 +390,7 @@ def create_preset_templates() -> Dict[str, PrintLabelTemplate]:
         elements=[
             LabelElement(id="s_model", field_key="model_name", title="Model", content="Model Name", show_title=False, x_mm=1.5, y_mm=2.0, font_size=9, bold=True),
             LabelElement(id="s_cap", field_key="capacity", title="Storage", content="256GB", show_title=True, x_mm=1.5, y_mm=6.2, font_size=7.5),
+            LabelElement(id="s_bat", field_key="battery_life", title="Battery", content="100%", show_title=True, x_mm=22.0, y_mm=6.2, font_size=7.5),
             LabelElement(id="s_col", field_key="color", title="Color", content="Color", show_title=True, x_mm=1.5, y_mm=10.2, font_size=7.5),
             LabelElement(id="s_bc", field_key="imei", title="IMEI", content="352123456789012", show_title=False, is_barcode=True, x_mm=1.5, y_mm=14.5, font_size=8, height_mm=11.0)
         ]
@@ -406,6 +410,7 @@ def create_preset_templates() -> Dict[str, PrintLabelTemplate]:
             LabelElement(id="w_num", field_key="number", title="No.", content="001", show_title=True, x_mm=2.0, y_mm=2.0, font_size=8, bold=True),
             LabelElement(id="w_model", field_key="model_name", title="Model", content="Samsung Galaxy S24 Ultra", show_title=False, x_mm=2.0, y_mm=6.2, font_size=9, bold=True),
             LabelElement(id="w_cap", field_key="capacity", title="Storage", content="512GB", show_title=True, x_mm=2.0, y_mm=10.5, font_size=8),
+            LabelElement(id="w_bat", field_key="battery_life", title="Battery", content="100%", show_title=True, x_mm=26.0, y_mm=10.5, font_size=8),
             LabelElement(id="w_col", field_key="color", title="Color", content="Titanium Gray", show_title=True, x_mm=2.0, y_mm=14.5, font_size=8),
             LabelElement(id="w_bc", field_key="imei", title="IMEI", content="352123456789012", show_title=False, is_barcode=True, x_mm=2.0, y_mm=19.0, font_size=8, height_mm=9.5),
             LabelElement(id="w_qr", field_key="qr_code", title="QR", content="https://prolab.app", show_title=False, is_qr=True, x_mm=46.0, y_mm=13.0, width_mm=12.0, height_mm=12.0)

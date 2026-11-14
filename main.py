@@ -12,6 +12,7 @@ from PyQt6.QtCore import Qt
 
 from core.paths import get_app_data_dir, get_asset_path
 from core.database import DatabaseManager
+from core.version import APP_VERSION, get_version, get_window_title
 from ui.main_window import MainWindow
 
 # Configure logging
@@ -21,8 +22,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("thermal_lab")
 
-APP_VERSION = "4.5.0"
-APP_USER_MODEL_ID = "ProLab.SmartLabeler.App.1.0"
+APP_USER_MODEL_ID = f"ProLab.SmartLabeler.App.{APP_VERSION}"
 
 
 def set_app_user_model_id(app_id: str = APP_USER_MODEL_ID) -> bool:

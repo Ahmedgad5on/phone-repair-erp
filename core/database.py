@@ -2227,3 +2227,71 @@ class DatabaseManager:
         except Exception as e:
             logger.error("Failed to export history to CSV: %s", e)
             return False
+
+    def learn_tac_color(self, tac: str, model: str, color: str) -> bool:
+        """
+        Stores or updates learned TAC-to-color mapping for automatic color recognition.
+        tac: First 8 digits of IMEI
+        model: Device marketing name or model
+        color: Known valid color name
+        """
+        if not tac or not color or len(tac.strip()) < 8:
+            return False
+        clean_tac = tac.strip()[:8]
+        clean_model = (model or "").strip()
+        clean_color = color.strip()
+        if not clean_color or clean_color.lower() in ("unknown", "none", "") or clean_color.startswith("#"):
+            return False
+
+        with self._lock:
+            try:
+                conn = self.get_connection()
+                cur = conn.cursor()
+                cur.execute("""
+                    INSERT INTO tac_color_map (tac, model, color, updated_at)
+                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(tac, model) DO UPDATE SET
+                        color=excluded.color,
+                        updated_at=CURRENT_TIMESTAMP;
+                """, (clean_tac, clean_model, clean_color))
+                conn.commit()
+                return True
+            except Exception as e:
+                logger.error("Failed to learn TAC color: %s", e)
+                return False
+
+    def lookup_tac_color(self, tac: str, model: str = "") -> Optional[str]:
+        """
+        Looks up a learned color by TAC and optionally model.
+        Returns the color name or None if not found.
+        """
+        if not tac or len(tac.strip()) < 8:
+            return None
+        clean_tac = tac.strip()[:8]
+        clean_model = (model or "").strip()
+
+        with self._lock:
+            try:
+                conn = self.get_connection()
+                cur = conn.cursor()
+                if clean_model:
+                    cur.execute(
+                        "SELECT color FROM tac_color_map WHERE tac = ? AND model = ? ORDER BY updated_at DESC LIMIT 1;",
+                        (clean_tac, clean_model)
+                    )
+                    row = cur.fetchone()
+                    if row and row["color"]:
+                        return str(row["color"])
+
+                # Fallback to TAC match regardless of model
+                cur.execute(
+                    "SELECT color FROM tac_color_map WHERE tac = ? ORDER BY updated_at DESC LIMIT 1;",
+                    (clean_tac,)
+                )
+                row = cur.fetchone()
+                if row and row["color"]:
+                    return str(row["color"])
+                return None
+            except Exception as e:
+                logger.error("Failed to lookup TAC color: %s", e)
+                return None
