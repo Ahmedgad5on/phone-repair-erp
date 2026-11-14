@@ -249,18 +249,9 @@ def resolve_field_value(field_key: str, specs: Optional[DeviceSpecs], stock_numb
         return _default_field_fallback("color")
     elif field_key == "capacity":
         storage_str = str(specs.storage or "").strip()
-        ram_str = str(specs.ram or "").strip()
         if storage_str.lower() in ("unknown", "mtp storage", "tap 'allow' on screen", ""):
             storage_str = "128GB"
-        if not ram_str:
-            ram_str = "8GB"
-        if storage_str and ram_str:
-            return f"{storage_str} / {ram_str} RAM"
-        elif storage_str:
-            return storage_str
-        elif ram_str:
-            return f"{ram_str} RAM"
-        return "128GB / 8GB RAM"
+        return storage_str or _default_field_fallback("capacity")
     elif field_key == "ram":
         return specs.ram or "8GB RAM"
     elif field_key == "serial_number":

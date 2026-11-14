@@ -665,9 +665,9 @@ class MainWindow(QMainWindow):
             self._on_role_switched("Salesperson", "Salesperson")
         else:
             # Promote to Owner via PIN
-            dlg = PinDialog(parent=self, title="التحقق من هوية المالك (Owner PIN)")
+            dlg = PinDialog(db=self.db, required_role="Owner", parent=self, title="التحقق من هوية المالك (Owner PIN)")
             if dlg.exec():
-                if dlg.is_correct(self.db.get_owner_pin()):
+                if dlg.authorized or dlg.is_correct(self.db.get_owner_pin() if hasattr(self.db, "get_owner_pin") else None):
                     self._on_role_switched("Owner", "Owner")
                 else:
                     QMessageBox.warning(self, "خطأ في الرمز", "رمز الدخول غير صحيح!")

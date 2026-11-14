@@ -17,11 +17,15 @@ Features:
 import base64
 import csv
 from datetime import datetime, date, timedelta
+import hashlib
+import hmac
 import io
 import json
 import logging
 import os
 from pathlib import Path
+import re
+import secrets
 import sqlite3
 import threading
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -33,6 +37,32 @@ from core.models import (
 from core.paths import get_database_path
 
 logger = logging.getLogger(__name__)
+
+
+# ==============================================================================
+# Secure PIN Hashing & Verification
+# ==============================================================================
+
+def hash_pin(pin: str, salt: Optional[str] = None) -> str:
+    """Hashes a PIN using salted SHA-256."""
+    if not salt:
+        salt = secrets.token_hex(8)
+    h = hashlib.sha256(f"{salt}:{pin}".encode("utf-8")).hexdigest()
+    return f"{salt}${h}"
+
+
+def verify_pin_hash(pin: str, stored_val: str) -> bool:
+    """Timing-safe verification of entered PIN against stored hash or plaintext."""
+    if not stored_val or not pin:
+        return False
+    if "$" in stored_val:
+        parts = stored_val.split("$", 1)
+        if len(parts) == 2:
+            salt, expected_hash = parts
+            actual_hash = hashlib.sha256(f"{salt}:{pin}".encode("utf-8")).hexdigest()
+            return hmac.compare_digest(actual_hash, expected_hash)
+    # Plaintext fallback for legacy unmigrated databases with timing-safe comparison
+    return hmac.compare_digest(str(pin).strip(), str(stored_val).strip())
 
 
 # ==============================================================================
@@ -278,7 +308,10 @@ class DatabaseManager:
             cur.execute("PRAGMA table_info(audit_items);")
             existing_audit_cols = [r["name"] for r in cur.fetchall()]
             if existing_audit_cols and "audit_id" not in existing_audit_cols:
-                cur.execute("DROP TABLE audit_items;")
+                try:
+                    cur.execute("ALTER TABLE audit_items ADD COLUMN audit_id INTEGER DEFAULT 0;")
+                except Exception as e:
+                    logger.debug("Non-destructive schema migration note: %s", e)
 
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS audit_items (
@@ -331,8 +364,106 @@ class DatabaseManager:
                     SELECT RAISE(ABORT, 'Security audit log entries are immutable and cannot be deleted.');
                 END;
             """)
+            cur.execute("""
+                CREATE TRIGGER IF NOT EXISTS trg_prevent_audit_log_update
+                BEFORE UPDATE ON security_audit_log
+                BEGIN
+                    SELECT RAISE(ABORT, 'Security audit log entries are immutable and cannot be updated.');
+                END;
+            """)
 
-            # 10. App Settings Table
+            # 10. Schema Migrations Table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                    version INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    applied_at TEXT NOT NULL
+                );
+            """)
+
+            # 11. Legacy Workshop & Compatibility Tables
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS printed_labels (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    stock_number TEXT UNIQUE NOT NULL,
+                    label_type TEXT NOT NULL,
+                    brand TEXT,
+                    marketing_name TEXT,
+                    model_code TEXT,
+                    storage TEXT,
+                    ram TEXT,
+                    color TEXT,
+                    os_version TEXT,
+                    serial_number TEXT,
+                    imei1 TEXT,
+                    imei2 TEXT,
+                    battery_health INTEGER,
+                    battery_cycles INTEGER,
+                    sales_region TEXT,
+                    condition_grade TEXT,
+                    remarks TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS repair_tickets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ticket_id TEXT UNIQUE NOT NULL,
+                    customer_name TEXT NOT NULL,
+                    customer_phone TEXT NOT NULL,
+                    device_model TEXT NOT NULL,
+                    reported_fault TEXT NOT NULL,
+                    passcode TEXT,
+                    sim_removed INTEGER DEFAULT 1,
+                    back_cracked INTEGER DEFAULT 0,
+                    dead_device INTEGER DEFAULT 0,
+                    estimated_cost REAL DEFAULT 0.0,
+                    intake_datetime TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS inventory (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    stock_number TEXT UNIQUE NOT NULL,
+                    model TEXT NOT NULL,
+                    color TEXT,
+                    storage TEXT,
+                    imei1 TEXT,
+                    status TEXT NOT NULL DEFAULT 'In Stock',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS tac_color_map (
+                    tac TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    color TEXT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY(tac, model)
+                );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS audit_sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    notes TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+
+            # Compatibility Indexes
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_labels_serial ON printed_labels(serial_number);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_labels_imei1 ON printed_labels(imei1);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_labels_model ON printed_labels(marketing_name);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_labels_stock ON printed_labels(stock_number);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_tickets_phone ON repair_tickets(customer_phone);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_tickets_model ON repair_tickets(device_model);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_tickets_ticket_id ON repair_tickets(ticket_id);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_tickets_customer ON repair_tickets(customer_name);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_inventory_status ON inventory(status);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_inventory_imei ON inventory(imei1);")
+
+            # 12. App Settings Table
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS app_settings (
                     key TEXT PRIMARY KEY,
@@ -411,6 +542,87 @@ class DatabaseManager:
                 (key, str(value))
             )
             conn.commit()
+
+    def verify_pin(self, pin: str, role: str = "Owner") -> bool:
+        """Verifies entered PIN for given role, automatically migrating plaintext to salted hash."""
+        key = "owner_pin" if role == "Owner" else "sales_pin"
+        default = "1234" if role == "Owner" else "0000"
+        stored = self.get_setting(key, default)
+        if verify_pin_hash(pin, stored):
+            if "$" not in stored:
+                try:
+                    self.set_setting(key, hash_pin(pin))
+                except Exception:
+                    pass
+            return True
+        return False
+
+    def get_owner_pin(self) -> str:
+        """Returns the configured owner PIN."""
+        return self.get_setting("owner_pin", "1234")
+
+    def get_sales_pin(self) -> str:
+        """Returns the configured salesperson PIN."""
+        return self.get_setting("sales_pin", "0000")
+
+    def set_pin(self, pin: str, role: str = "Owner") -> bool:
+        """Sets a new securely hashed PIN for Owner or Salesperson."""
+        if not pin or len(pin) < 4:
+            raise ValueError("PIN must be at least 4 digits.")
+        key = "owner_pin" if role == "Owner" else "sales_pin"
+        hashed = hash_pin(pin)
+        self.set_setting(key, hashed)
+        self.log_security_event(
+            action_type="pin_updated",
+            user_role=role,
+            user_name="Admin",
+            details=f"{role} PIN updated securely"
+        )
+        return True
+
+    def backup_database(self, destination_path: Optional[str] = None) -> Tuple[bool, str]:
+        """
+        Creates an atomic, consistent SQLite snapshot using the online backup API.
+        Verifies the backup with PRAGMA integrity_check before returning.
+        """
+        with self._lock:
+            try:
+                if not destination_path:
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    backups_dir = os.path.join(os.path.dirname(os.path.abspath(self.db_path)), "backups")
+                    os.makedirs(backups_dir, exist_ok=True)
+                    destination_path = os.path.join(backups_dir, f"backup_{timestamp}.db")
+                else:
+                    os.makedirs(os.path.dirname(os.path.abspath(destination_path)), exist_ok=True)
+
+                source_conn = self.get_connection()
+                dest_conn = sqlite3.connect(destination_path)
+                with dest_conn:
+                    source_conn.backup(dest_conn, pages=100)
+                dest_conn.close()
+
+                # Verify integrity of the backup file
+                verify_conn = sqlite3.connect(destination_path)
+                cur = verify_conn.cursor()
+                cur.execute("PRAGMA integrity_check;")
+                check_result = cur.fetchone()[0]
+                verify_conn.close()
+
+                if check_result.lower() != "ok":
+                    if os.path.exists(destination_path):
+                        os.remove(destination_path)
+                    return False, f"Backup integrity check failed: {check_result}"
+
+                self.log_security_event(
+                    action_type="database_backup",
+                    user_role="Owner",
+                    user_name="System",
+                    details=f"Consistent online backup saved to: {destination_path}"
+                )
+                return True, destination_path
+            except Exception as e:
+                logger.error("Failed to perform SQLite online backup: %s", e)
+                return False, str(e)
 
     # ==========================================================================
     # Security Audit Trail
@@ -845,29 +1057,35 @@ class DatabaseManager:
                 device.created_at, device.updated_at
             ))
             dev_id = cur.lastrowid
-            conn.commit()
 
-            # If device belongs to a trader (credit purchase), record in ledger
-            if device.trader_id and device.buy_price > 0 and device.ownership == "ملك المحل":
-                self.record_trader_transaction(
-                    trader_id=device.trader_id,
-                    trans_type="شراء آجل",
-                    amount=device.buy_price,
-                    device_id=dev_id,
-                    notes=f"شراء جهاز {device.brand} {device.model_name} (سريال {device.stock_no})",
-                    user_role=user_role,
-                    user_name=user_name
-                )
-            elif device.trader_id and device.ownership == "بضاعة أمانة":
-                self.record_trader_transaction(
-                    trader_id=device.trader_id,
-                    trans_type="بضاعة أمانة",
-                    amount=0.0,
-                    device_id=dev_id,
-                    notes=f"استلام أمانة {device.brand} {device.model_name}",
-                    user_role=user_role,
-                    user_name=user_name
-                )
+            try:
+                # If device belongs to a trader (credit purchase), record in ledger
+                if device.trader_id and device.buy_price > 0 and device.ownership == "ملك المحل":
+                    self.record_trader_transaction(
+                        trader_id=device.trader_id,
+                        trans_type="شراء آجل",
+                        amount=device.buy_price,
+                        device_id=dev_id,
+                        notes=f"شراء جهاز {device.brand} {device.model_name} (سريال {device.stock_no})",
+                        user_role=user_role,
+                        user_name=user_name,
+                        conn=conn
+                    )
+                elif device.trader_id and device.ownership == "بضاعة أمانة":
+                    self.record_trader_transaction(
+                        trader_id=device.trader_id,
+                        trans_type="بضاعة أمانة",
+                        amount=0.0,
+                        device_id=dev_id,
+                        notes=f"استلام أمانة {device.brand} {device.model_name}",
+                        user_role=user_role,
+                        user_name=user_name,
+                        conn=conn
+                    )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
 
             self.log_security_event(
                 action_type="stock_intake",
@@ -1107,16 +1325,41 @@ class DatabaseManager:
     ) -> int:
         """
         Executes POS Sale atomically:
+        - Validates non-negative monetary amounts and split payment consistency.
         - Verifies device is in stock.
         - Validates price against min_allowed_price.
         - Updates device status to 'sold'.
         - If trade-in device included, updates trade-in device to 'trade_in' or 'in_stock'.
-        - If trader credit amount > 0, records debit in trader ledger.
+        - If trader credit amount > 0, records debit in trader ledger within the same transaction.
+        - Commits once or cleanly rolls back on any error.
         - Logs immutable security audit entry.
         """
         with self._lock:
             conn = self.get_connection()
             cur = conn.cursor()
+
+            # Monetary invariants validation (TASK-002)
+            if (sale.final_price or 0) < 0 or (sale.selling_price or 0) < 0 or (sale.discount or 0) < 0:
+                raise ValueError("Monetary prices and discounts cannot be negative.")
+            if (
+                (sale.cash_amount or 0) < 0 or (sale.instapay_amount or 0) < 0
+                or (sale.vodafone_cash_amount or 0) < 0 or (sale.other_wallet_amount or 0) < 0
+                or (sale.trader_credit_amount or 0) < 0 or (sale.trade_in_allowance or 0) < 0
+            ):
+                raise ValueError("Payment components cannot be negative.")
+
+            components_sum = (
+                (sale.cash_amount or 0.0) +
+                (sale.instapay_amount or 0.0) +
+                (sale.vodafone_cash_amount or 0.0) +
+                (sale.other_wallet_amount or 0.0) +
+                (sale.trader_credit_amount or 0.0) +
+                (sale.trade_in_allowance or 0.0)
+            )
+            if abs(components_sum - float(sale.final_price)) > 0.01:
+                raise ValueError(
+                    f"Payment components sum ({components_sum:,.2f}) does not match final price ({sale.final_price:,.2f})."
+                )
 
             device = cur.execute("SELECT * FROM devices WHERE id = ?;", (sale.device_id,)).fetchone()
             if not device:
@@ -1136,53 +1379,58 @@ class DatabaseManager:
             if not sale.sale_date:
                 sale.sale_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-            # Insert Sale record
-            cur.execute("""
-                INSERT INTO sales (
-                    invoice_no, sale_date, device_id, salesperson, customer_name, customer_phone,
-                    selling_price, discount, final_price, payment_method, cash_amount, instapay_amount,
-                    vodafone_cash_amount, other_wallet_amount, trader_credit_amount, instapay_ref,
-                    proof_photo, trade_in_device_id, trade_in_allowance, net_collected, status, notes
-                ) VALUES (
-                    ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?
-                );
-            """, (
-                sale.invoice_no, sale.sale_date, sale.device_id, sale.salesperson, sale.customer_name,
-                sale.customer_phone, sale.selling_price, sale.discount, sale.final_price, sale.payment_method,
-                sale.cash_amount, sale.instapay_amount, sale.vodafone_cash_amount, sale.other_wallet_amount,
-                sale.trader_credit_amount, sale.instapay_ref, sale.proof_photo, sale.trade_in_device_id,
-                sale.trade_in_allowance, sale.net_collected, sale.status, sale.notes
-            ))
-            sale_id = cur.lastrowid
+            try:
+                # Insert Sale record
+                cur.execute("""
+                    INSERT INTO sales (
+                        invoice_no, sale_date, device_id, salesperson, customer_name, customer_phone,
+                        selling_price, discount, final_price, payment_method, cash_amount, instapay_amount,
+                        vodafone_cash_amount, other_wallet_amount, trader_credit_amount, instapay_ref,
+                        proof_photo, trade_in_device_id, trade_in_allowance, net_collected, status, notes
+                    ) VALUES (
+                        ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?, ?
+                    );
+                """, (
+                    sale.invoice_no, sale.sale_date, sale.device_id, sale.salesperson, sale.customer_name,
+                    sale.customer_phone, sale.selling_price, sale.discount, sale.final_price, sale.payment_method,
+                    sale.cash_amount, sale.instapay_amount, sale.vodafone_cash_amount, sale.other_wallet_amount,
+                    sale.trader_credit_amount, sale.instapay_ref, sale.proof_photo, sale.trade_in_device_id,
+                    sale.trade_in_allowance, sale.net_collected, sale.status, sale.notes
+                ))
+                sale_id = cur.lastrowid
 
-            # Mark sold device
-            now_iso = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            cur.execute("UPDATE devices SET status = 'sold', updated_at = ? WHERE id = ?;", (now_iso, sale.device_id))
+                # Mark sold device
+                now_iso = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                cur.execute("UPDATE devices SET status = 'sold', updated_at = ? WHERE id = ?;", (now_iso, sale.device_id))
 
-            # If trade-in device intake was performed, mark as in_stock / trade_in
-            if sale.trade_in_device_id:
-                cur.execute(
-                    "UPDATE devices SET status = 'in_stock', remarks = remarks || ' [Trade-in from invoice ' || ? || ']', updated_at = ? WHERE id = ?;",
-                    (sale.invoice_no, now_iso, sale.trade_in_device_id)
-                )
+                # If trade-in device intake was performed, mark as in_stock / trade_in
+                if sale.trade_in_device_id:
+                    cur.execute(
+                        "UPDATE devices SET status = 'in_stock', remarks = remarks || ' [Trade-in from invoice ' || ? || ']', updated_at = ? WHERE id = ?;",
+                        (sale.invoice_no, now_iso, sale.trade_in_device_id)
+                    )
 
-            # If Trader Credit part of payment, record ledger
-            if sale.trader_credit_amount > 0 and device["trader_id"]:
-                self.record_trader_transaction(
-                    trader_id=device["trader_id"],
-                    trans_type="بيع آجل",
-                    amount=sale.trader_credit_amount,
-                    device_id=sale.device_id,
-                    reference_no=sale.invoice_no,
-                    notes=f"بيع آجل فاتورة {sale.invoice_no}",
-                    user_role=user_role,
-                    user_name=user_name
-                )
+                # If Trader Credit part of payment, record ledger atomically on same connection
+                if sale.trader_credit_amount > 0 and device["trader_id"]:
+                    self.record_trader_transaction(
+                        trader_id=device["trader_id"],
+                        trans_type="بيع آجل",
+                        amount=sale.trader_credit_amount,
+                        device_id=sale.device_id,
+                        reference_no=sale.invoice_no,
+                        notes=f"بيع آجل فاتورة {sale.invoice_no}",
+                        user_role=user_role,
+                        user_name=user_name,
+                        conn=conn
+                    )
 
-            conn.commit()
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
 
             profit = sale.final_price - (device["buy_price"] + device["prep_cost"])
             self.log_security_event(
@@ -1220,7 +1468,20 @@ class DatabaseManager:
             return sale_id
 
     def void_sale(self, sale_id: int, user_role: str = "Owner", user_name: str = "Admin", reason: str = "") -> bool:
-        """Voids a sale and returns the device back to in_stock."""
+        """Voids a sale and returns the device back to in_stock. Strictly enforces Owner role."""
+        if user_role != "Owner":
+            logger.warning("Unauthorized void attempt by non-Owner: role=%s, user=%s", user_role, user_name)
+            self.log_security_event(
+                action_type="unauthorized_void_attempt",
+                user_role=user_role,
+                user_name=user_name,
+                device_imei="",
+                old_value=str(sale_id),
+                new_value="REJECTED",
+                details=f"Unauthorized void attempt on sale ID {sale_id} by {user_name} ({user_role})"
+            )
+            return False
+
         with self._lock:
             conn = self.get_connection()
             cur = conn.cursor()
@@ -1231,14 +1492,18 @@ class DatabaseManager:
                 return False
 
             now_iso = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            cur.execute("UPDATE sales SET status = 'voided', notes = notes || ' [VOIDED: ' || ? || ']' WHERE id = ?;", (reason, sale_id))
-            cur.execute("UPDATE devices SET status = 'in_stock', updated_at = ? WHERE id = ?;", (now_iso, sale["device_id"]))
+            try:
+                cur.execute("UPDATE sales SET status = 'voided', notes = notes || ' [VOIDED: ' || ? || ']' WHERE id = ?;", (reason, sale_id))
+                cur.execute("UPDATE devices SET status = 'in_stock', updated_at = ? WHERE id = ?;", (now_iso, sale["device_id"]))
 
-            # If trade-in device was part of this sale, return it to 'returned'
-            if sale["trade_in_device_id"]:
-                cur.execute("UPDATE devices SET status = 'returned', updated_at = ? WHERE id = ?;", (now_iso, sale["trade_in_device_id"]))
+                # If trade-in device was part of this sale, return it to 'returned'
+                if sale["trade_in_device_id"]:
+                    cur.execute("UPDATE devices SET status = 'returned', updated_at = ? WHERE id = ?;", (now_iso, sale["trade_in_device_id"]))
 
-            conn.commit()
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
 
             self.log_security_event(
                 action_type="sale_void",
@@ -1302,7 +1567,8 @@ class DatabaseManager:
         payment_method: str = "Cash",
         notes: str = "",
         user_role: str = "Owner",
-        user_name: str = "Admin"
+        user_name: str = "Admin",
+        conn: Optional[sqlite3.Connection] = None
     ) -> int:
         """
         Records transaction in trader_ledger and updates trader net_balance:
@@ -1312,8 +1578,11 @@ class DatabaseManager:
         - دفعة مقبوضة (Collection from trader): He paid us -> net_balance += amount
         - تسوية (Adjustment): Handled per notes / sign
         """
+        should_commit = False
         with self._lock:
-            conn = self.get_connection()
+            if conn is None:
+                conn = self.get_connection()
+                should_commit = True
             cur = conn.cursor()
             trader = cur.execute("SELECT * FROM traders WHERE id = ?;", (trader_id,)).fetchone()
             if not trader:
@@ -1343,7 +1612,8 @@ class DatabaseManager:
             ledger_id = cur.lastrowid
 
             cur.execute("UPDATE traders SET net_balance = ? WHERE id = ?;", (new_bal, trader_id))
-            conn.commit()
+            if should_commit:
+                conn.commit()
 
             self.log_security_event(
                 action_type="trader_transaction",
@@ -1737,3 +2007,223 @@ class DatabaseManager:
                 "scanned_items": [dict(i) for i in items],
                 "missing_devices": [dict(m) for m in missing_devs]
             }
+
+    # ==========================================================================
+    # Legacy Workshop & History Compatibility Layer (Milestones 2 & 3 Support)
+    # ==========================================================================
+
+    def get_next_stock_number(self) -> str:
+        """Sequential stock number generator for printed labels (STK-000001)."""
+        with self._lock:
+            conn = self.get_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT id FROM printed_labels ORDER BY id DESC LIMIT 1;")
+            row = cur.fetchone()
+            next_id = (row["id"] + 1) if row else 1
+            return f"STK-{next_id:06d}"
+
+    def get_next_ticket_id(self) -> str:
+        """Sequential repair ticket generator (TKT-000001)."""
+        with self._lock:
+            conn = self.get_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT id FROM repair_tickets ORDER BY id DESC LIMIT 1;")
+            row = cur.fetchone()
+            next_id = (row["id"] + 1) if row else 1
+            return f"TKT-{next_id:06d}"
+
+    def log_printed_label(self, specs: Any, stock_number: str, label_type: str = "device_specs") -> int:
+        """Logs a printed thermal label to the printed_labels table."""
+        with self._lock:
+            conn = self.get_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO printed_labels (
+                    stock_number, label_type, brand, marketing_name, model_code,
+                    storage, ram, color, os_version, serial_number, imei1, imei2,
+                    battery_health, battery_cycles, sales_region, condition_grade, remarks
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """, (
+                stock_number,
+                label_type,
+                getattr(specs, "brand", ""),
+                getattr(specs, "marketing_name", ""),
+                getattr(specs, "model_code", ""),
+                getattr(specs, "storage", ""),
+                getattr(specs, "ram", ""),
+                getattr(specs, "color", ""),
+                getattr(specs, "os_version", ""),
+                getattr(specs, "serial_number", ""),
+                getattr(specs, "imei1", ""),
+                getattr(specs, "imei2", None),
+                getattr(specs, "battery_health", None),
+                getattr(specs, "battery_cycles", None),
+                getattr(specs, "sales_region", None),
+                getattr(specs, "condition_grade", "A+"),
+                getattr(specs, "remarks", "")
+            ))
+            conn.commit()
+            return cur.lastrowid
+
+    def log_repair_ticket(self, ticket: Any) -> int:
+        """Logs a workshop repair ticket."""
+        with self._lock:
+            conn = self.get_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO repair_tickets (
+                    ticket_id, customer_name, customer_phone, device_model, reported_fault,
+                    passcode, sim_removed, back_cracked, dead_device, estimated_cost, intake_datetime
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """, (
+                getattr(ticket, "ticket_id", ""),
+                getattr(ticket, "customer_name", ""),
+                getattr(ticket, "customer_phone", ""),
+                getattr(ticket, "device_model", ""),
+                getattr(ticket, "reported_fault", ""),
+                getattr(ticket, "passcode", ""),
+                1 if getattr(ticket, "sim_removed", True) else 0,
+                1 if getattr(ticket, "back_cracked", False) else 0,
+                1 if getattr(ticket, "dead_device", False) else 0,
+                float(getattr(ticket, "estimated_cost", 0.0) or 0.0),
+                getattr(ticket, "intake_datetime", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            ))
+            conn.commit()
+            return cur.lastrowid
+
+    def search_history(self, query: str = "") -> List[Dict[str, Any]]:
+        """Searches historical printed labels and repair tickets across all fields."""
+        query_pattern = f"%{str(query).strip()}%"
+        results: List[Dict[str, Any]] = []
+        with self._lock:
+            conn = self.get_connection()
+            cur = conn.cursor()
+
+            # Search labels
+            cur.execute("""
+                SELECT 'specs' as source, id, stock_number as ref_id, marketing_name as model,
+                       serial_number, imei1, remarks as details, created_at
+                FROM printed_labels
+                WHERE serial_number LIKE ? OR imei1 LIKE ? OR marketing_name LIKE ? OR stock_number LIKE ?
+                ORDER BY id DESC LIMIT 200;
+            """, (query_pattern, query_pattern, query_pattern, query_pattern))
+            for row in cur.fetchall():
+                results.append(dict(row))
+
+            # Search tickets
+            cur.execute("""
+                SELECT 'ticket' as source, id, ticket_id as ref_id, device_model as model,
+                       customer_phone as serial_number, customer_name as imei1, reported_fault as details, created_at
+                FROM repair_tickets
+                WHERE customer_phone LIKE ? OR customer_name LIKE ? OR device_model LIKE ? OR ticket_id LIKE ?
+                ORDER BY id DESC LIMIT 200;
+            """, (query_pattern, query_pattern, query_pattern, query_pattern))
+            for row in cur.fetchall():
+                results.append(dict(row))
+
+            return results
+
+    def export_history_to_excel(self, file_path: str) -> bool:
+        """Exports printed labels and repair tickets to a multi-sheet Excel file."""
+        try:
+            import openpyxl
+            from openpyxl.styles import Font, PatternFill, Alignment
+
+            os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
+            wb = openpyxl.Workbook()
+
+            # Sheet 1: Device Specs History
+            ws_specs = wb.active
+            ws_specs.title = "Device Specs History"
+
+            header_fill = PatternFill(start_color="1E1E1E", end_color="1E1E1E", fill_type="solid")
+            header_font = Font(name="Segoe UI", size=11, bold=True, color="D4AF37")
+
+            specs_headers = [
+                "Row", "Stock Number", "Label Type", "Brand", "Marketing Name", "Model Code",
+                "Storage", "RAM", "Color", "OS Version", "Serial Number",
+                "IMEI1", "IMEI2", "Battery Health", "Battery Cycles",
+                "Sales Region", "Condition", "Remarks", "Created At"
+            ]
+            ws_specs.append(specs_headers)
+            for col_idx in range(1, len(specs_headers) + 1):
+                cell = ws_specs.cell(row=1, column=col_idx)
+                cell.fill = header_fill
+                cell.font = header_font
+
+            with self._lock:
+                conn = self.get_connection()
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM printed_labels ORDER BY id ASC;")
+                rows = cur.fetchall()
+                for idx, r in enumerate(rows, start=1):
+                    ws_specs.append([
+                        idx, r["stock_number"], r["label_type"], r["brand"], r["marketing_name"], r["model_code"],
+                        r["storage"], r["ram"], r["color"], r["os_version"], r["serial_number"],
+                        r["imei1"], r["imei2"], r["battery_health"], r["battery_cycles"],
+                        r["sales_region"], r["condition_grade"], r["remarks"], r["created_at"]
+                    ])
+
+            # Sheet 2: Repair Tickets History
+            ws_tickets = wb.create_sheet(title="Repair Tickets History")
+            ticket_headers = [
+                "Row", "Ticket ID", "Customer Name", "Customer Phone", "Device Model",
+                "Reported Fault", "Passcode", "SIM Removed", "Back Cracked",
+                "Dead Device", "Estimated Cost", "Intake Datetime", "Created At"
+            ]
+            ws_tickets.append(ticket_headers)
+            for col_idx in range(1, len(ticket_headers) + 1):
+                cell = ws_tickets.cell(row=1, column=col_idx)
+                cell.fill = header_fill
+                cell.font = header_font
+
+            with self._lock:
+                cur.execute("SELECT * FROM repair_tickets ORDER BY id ASC;")
+                rows = cur.fetchall()
+                for idx, r in enumerate(rows, start=1):
+                    ws_tickets.append([
+                        idx, r["ticket_id"], r["customer_name"], r["customer_phone"], r["device_model"],
+                        r["reported_fault"], r["passcode"], r["sim_removed"], r["back_cracked"],
+                        r["dead_device"], r["estimated_cost"], r["intake_datetime"], r["created_at"]
+                    ])
+
+            wb.save(file_path)
+            return True
+        except Exception as e:
+            logger.error("Failed to export history to Excel: %s", e)
+            return False
+
+    def export_history_to_csv(self, file_path: str, source: str = "specs") -> bool:
+        """Exports specs or tickets history to a RFC 4180 CSV with UTF-8 BOM encoding."""
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
+            with self._lock:
+                conn = self.get_connection()
+                cur = conn.cursor()
+                if source == "specs":
+                    cur.execute("SELECT * FROM printed_labels ORDER BY id ASC;")
+                    rows = cur.fetchall()
+                    headers = [
+                        "id", "stock_number", "label_type", "brand", "marketing_name", "model_code",
+                        "storage", "ram", "color", "os_version", "serial_number", "imei1", "imei2",
+                        "battery_health", "battery_cycles", "sales_region", "condition_grade", "remarks", "created_at"
+                    ]
+                else:
+                    cur.execute("SELECT * FROM repair_tickets ORDER BY id ASC;")
+                    rows = cur.fetchall()
+                    headers = [
+                        "id", "ticket_id", "customer_name", "customer_phone", "device_model",
+                        "reported_fault", "passcode", "sim_removed", "back_cracked", "dead_device",
+                        "estimated_cost", "intake_datetime", "created_at"
+                    ]
+
+            with open(file_path, "w", encoding="utf-8-sig", newline="") as f:
+                writer = csv.writer(f, quoting=csv.QUOTE_MINIMAL)
+                writer.writerow(headers)
+                for r in rows:
+                    writer.writerow([r[h] if h in r.keys() else "" for h in headers])
+
+            return True
+        except Exception as e:
+            logger.error("Failed to export history to CSV: %s", e)
+            return False

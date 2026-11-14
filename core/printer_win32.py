@@ -424,7 +424,8 @@ def print_label_image(
     virtual_fallback: bool = True,
     paper_width_mm: Optional[float] = None,
     paper_length_mm: Optional[float] = None,
-    orientation: str = "portrait"
+    orientation: str = "portrait",
+    output_dir: Optional[Union[str, Path]] = None
 ) -> Tuple[bool, str]:
     """
     Main entry point conforming strictly to PROJECT.md Interface Contract #3:
@@ -450,14 +451,15 @@ def print_label_image(
         name_str = str(printer_name).strip()
         if is_virtual_printer(name_str):
             if "pdf" in name_str.lower() and "png" not in name_str.lower():
-                return save_virtual_print(image, format_type="PDF")
-            return save_virtual_print(image, format_type="PNG")
+                return save_virtual_print(image, format_type="PDF", output_dir=output_dir)
+            return save_virtual_print(image, format_type="PNG", output_dir=output_dir)
 
         # Physical printer explicitly requested: verify it is installed
         if name_str not in installed:
             if not virtual_fallback:
                 return False, f"Printer '{name_str}' not found"
-            ok, file_path = save_virtual_print(image, format_type="PNG")
+            ok, file_path = save_virtual_print(image, format_type="PNG", output_dir=output_dir)
+            logger.info("Printer '%s' not found. Saved virtual print to: %s", name_str, file_path)
             return True, f"Printer '{name_str}' not found. Saved virtual print to: {file_path}"
         target_printer = name_str
     else:
@@ -465,7 +467,7 @@ def print_label_image(
         target_printer = detect_thermal_printer(installed)
         if not target_printer or is_virtual_printer(target_printer) or not WIN32_AVAILABLE:
             if virtual_fallback:
-                return save_virtual_print(image, format_type="PNG")
+                return save_virtual_print(image, format_type="PNG", output_dir=output_dir)
             return False, f"No physical thermal printer available for '{target_printer or 'None'}' and virtual fallback disabled."
 
     # 2. Attempt GDI silent print to genuine physical printer
@@ -480,8 +482,9 @@ def print_label_image(
 
     # 5. Fallback on hardware/driver error
     if not success and virtual_fallback:
-        fallback_ok, file_path = save_virtual_print(image, format_type="PNG")
+        fallback_ok, file_path = save_virtual_print(image, format_type="PNG", output_dir=output_dir)
         if fallback_ok:
+            logger.info("Printer '%s' error (%s). Saved virtual print to: %s", target_printer, message, file_path)
             return True, f"Printer '{target_printer}' error ({message}). Saved virtual print to: {file_path}"
         return False, f"Printer error ({message}) and virtual fallback failed: {file_path}"
 

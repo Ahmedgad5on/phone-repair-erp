@@ -1,6 +1,6 @@
 """
-tests/test_ui.py — Unit & Integration Test Suite for Desktop UI Layer (Milestone 4)
-Tests 5-panel layout, luxury dark styling tokens, signal propagation, and headless execution.
+tests/test_ui.py — Unit & Integration Test Suite for Desktop UI Layer
+Tests executive vertical layout, luxury dark styling tokens, signal propagation, and headless execution.
 """
 import os
 import shutil
@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
 
 from core.database import DatabaseManager
-from core.models import DeviceSpecs, RepairTicket
+from core.models import DeviceSpecs
 from ui.main_window import MainWindow
 from ui.styles import LUXURY_DARK_QSS, BG_ROOT, BG_SURFACE, ACCENT_GOLD
 
@@ -34,21 +34,37 @@ class TestDesktopUI(unittest.TestCase):
         self.window = MainWindow(db=self.db)
 
     def tearDown(self):
-        self.window.top_status_bar.stop_worker()
+        if hasattr(self.window, "bot") and self.window.bot:
+            self.window.bot.stop()
+        if hasattr(self.window, "top_bar") and self.window.top_bar:
+            self.window.top_bar.stop_worker()
         self.window.close()
         self.db.close()
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
-    def test_01_five_panel_layout_exists(self):
-        """Verify all 5 required panels exist and are instantiated."""
-        self.assertIsNotNone(self.window.top_status_bar)
-        self.assertIsNotNone(self.window.left_specs_intake_panel)
-        self.assertIsNotNone(self.window.center_wysiwyg_preview)
-        self.assertIsNotNone(self.window.right_printer_manager)
-        self.assertIsNotNone(self.window.bottom_history_table)
+    def test_01_layout_and_workspaces_exist(self):
+        """Verify header telemetry, sidebar navigation, and stacked workspaces exist."""
+        self.assertIsNotNone(self.window.top_bar)
+        self.assertIsNotNone(self.window.sidebar_frame)
+        self.assertIsNotNone(self.window.stack)
+        self.assertGreaterEqual(self.window.stack.count(), 9)
+
+        # Core operational workspaces
+        self.assertIsNotNone(self.window.tab_intake)
+        self.assertIsNotNone(self.window.tab_inventory)
+        self.assertIsNotNone(self.window.tab_pos)
+        self.assertIsNotNone(self.window.tab_trade_in)
+        self.assertIsNotNone(self.window.tab_traders)
+        self.assertIsNotNone(self.window.tab_reports)
+        self.assertIsNotNone(self.window.tab_analytics)
+        self.assertIsNotNone(self.window.tab_audit)
+        self.assertIsNotNone(self.window.canvas)
+        self.assertIsNotNone(self.window.right_panel)
+        self.assertIsNotNone(self.window.tab_telegram)
+        self.assertIsNotNone(self.window.tab_security)
 
     def test_02_minimum_window_footprint(self):
-        """Verify minimum size 1200x640 supports 720p screens."""
+        """Verify minimum size 1200x640 supports standard commercial POS screens."""
         min_size = self.window.minimumSize()
         self.assertGreaterEqual(min_size.width(), 1200)
         self.assertGreaterEqual(min_size.height(), 640)
@@ -63,7 +79,7 @@ class TestDesktopUI(unittest.TestCase):
         self.assertIn("#D4AF37", LUXURY_DARK_QSS)
 
     def test_04_device_specs_population_and_preview(self):
-        """Verify populating specs updates form fields and preview canvas."""
+        """Verify populating specs updates intake form fields and canvas state."""
         specs = DeviceSpecs(
             connection_type="mock",
             device_id="TEST-DEV-01",
@@ -80,73 +96,46 @@ class TestDesktopUI(unittest.TestCase):
         )
         self.window._on_device_connected(specs)
 
-        self.assertEqual(self.window.tab_specs.edit_brand.text(), "Samsung")
-        self.assertEqual(self.window.tab_specs.edit_model.text(), "Galaxy S24 Ultra")
-        self.assertEqual(self.window.tab_specs.edit_serial.text(), "RFCW10Z9XXX")
-        self.assertEqual(self.window.tab_specs.edit_battery.text(), "99")
+        self.assertEqual(self.window.tab_intake.cb_brand.currentText(), "Samsung")
+        self.assertEqual(self.window.tab_intake.txt_model.text(), "Galaxy S24 Ultra")
+        self.assertEqual(self.window.tab_intake.txt_serial.text(), "RFCW10Z9XXX")
+        self.assertEqual(self.window.tab_intake.sp_battery_health.value(), 99)
+        self.assertEqual(self.window.canvas._specs.serial_number, "RFCW10Z9XXX")
 
-        # Force render tick
-        self.window.center_wysiwyg_preview._render_now()
-        img = self.window.center_wysiwyg_preview.get_current_image()
-        self.assertIsNotNone(img)
-        self.assertEqual(img.size, (304, 200))  # 38x25mm default
+    def test_05_sidebar_navigation_switching(self):
+        """Verify switching sidebar items changes active stacked page correctly."""
+        self.window._on_sidebar_nav_clicked(1)
+        self.assertEqual(self.window.stack.currentIndex(), 1)
 
-    def test_05_repair_intake_ticket_preview(self):
-        """Verify switching to repair intake tab renders repair ticket label."""
-        self.window.left_tabs.setCurrentIndex(1)
-        self.assertEqual(self.window.center_wysiwyg_preview._mode, "ticket")
+        self.window._on_sidebar_nav_clicked(2)
+        self.assertEqual(self.window.stack.currentIndex(), 2)
 
-        ticket = self.window.tab_intake.get_ticket()
-        self.assertIsNotNone(ticket)
-        self.assertTrue(ticket.ticket_id.startswith("TKT-"))
+        self.window._on_sidebar_nav_clicked(0)
+        self.assertEqual(self.window.stack.currentIndex(), 0)
 
-        self.window.center_wysiwyg_preview._render_now()
-        img = self.window.center_wysiwyg_preview.get_current_image()
-        self.assertIsNotNone(img)
-        self.assertEqual(img.size, (400, 240))  # 50x30mm intake ticket preset
+    def test_06_role_switch_rbac_protection(self):
+        """Verify switching between Owner and Salesperson enforces field-level permissions."""
+        self.window._on_role_switched("Salesperson", "SalesStaff")
+        self.assertEqual(self.window.current_role, "Salesperson")
+        self.assertFalse(self.window.tab_intake.txt_buy_price.isEnabled())
 
-    def test_06_print_specs_persists_and_increments_stock(self):
-        """Verify printing specs logs to database and increments stock number."""
-        stk_before = self.window.tab_specs.get_stock_number()
-        specs = self.window.tab_specs.get_specs()
-
-        self.window._execute_print_specs(specs, stk_before)
-
-        # Verify record in database
-        records = self.db.search_history("")
-        self.assertGreaterEqual(len(records), 1)
-        self.assertEqual(records[0]["ref_id"], stk_before)
-
-        # Verify next stock number is updated
-        stk_after = self.window.tab_specs.get_stock_number()
-        self.assertNotEqual(stk_before, stk_after)
+        self.window._on_role_switched("Owner", "Owner")
+        self.assertEqual(self.window.current_role, "Owner")
+        self.assertTrue(self.window.tab_intake.txt_buy_price.isEnabled())
 
     def test_07_paper_size_preset_change(self):
-        """Verify switching preset changes width and height in preview."""
-        self.window.right_printer_manager.combo_preset.setCurrentIndex(1)  # 40x25mm
-        self.window.center_wysiwyg_preview._render_now()
-        img = self.window.center_wysiwyg_preview.get_current_image()
-        self.assertEqual(img.size, (320, 200))
+        """Verify switching preset changes width and height in template model."""
+        self.window.right_panel.combo_preset.setCurrentIndex(1)
+        tpl = self.window.right_panel.get_current_template()
+        self.assertIsNotNone(tpl)
+        w_mm, h_mm = tpl.effective_dimensions_mm()
+        self.assertGreater(w_mm, 0)
+        self.assertGreater(h_mm, 0)
 
-    def test_08_reprint_workflow(self):
-        """Verify 1-click reprint from history table reloads record and triggers print."""
-        # Log a record
-        specs = DeviceSpecs(
-            connection_type="mock", device_id="D99", brand="Xiaomi",
-            marketing_name="14 Ultra", model_code="24030PN60G",
-            storage="512GB", ram="16GB", color="White",
-            os_version="14", serial_number="SN_REPRINT_TEST",
-            imei1="359999000011122"
-        )
-        self.db.log_printed_label(specs, "STK-REPRINT-01")
-        self.window.bottom_history_table.reload_data()
-
-        # Find row and simulate reprint
-        record = self.db.search_history("SN_REPRINT_TEST")[0]
-        self.window._on_reprint_requested(record)
-
-        # Check that tab switched and fields loaded
-        self.assertEqual(self.window.tab_specs.edit_serial.text(), "SN_REPRINT_TEST")
+    def test_08_device_disconnect_telemetry_reset(self):
+        """Verify disconnecting resets telemetry indicator."""
+        self.window._on_device_disconnected()
+        self.assertIn("في انتظار", self.window.lbl_device_status.text())
 
     def test_09_printer_selection_synchronization(self):
         """Verify printer selection box in top bar is present and synchronizes with right panel."""
@@ -157,7 +146,6 @@ class TestDesktopUI(unittest.TestCase):
         self.assertGreaterEqual(top_combo.count(), 1)
         self.assertEqual(top_combo.currentText(), right_combo.currentText())
 
-        # Select different item if available
         if top_combo.count() > 1:
             top_combo.setCurrentIndex(1)
             self.assertEqual(right_combo.currentText(), top_combo.currentText())

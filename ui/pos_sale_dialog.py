@@ -181,6 +181,24 @@ class PosSaleDialog(QDialog):
         self.sp_final_price.setFocus()
         self.sp_final_price.selectAll()
 
+    def set_preselected_device(self, dev: dict):
+        """Pre-populates the POS dialog with a device selected from inventory."""
+        if not dev:
+            return
+        stock_or_imei = dev.get("stock_no") or dev.get("imei1") or ""
+        self.txt_barcode.setText(stock_or_imei)
+        self.selected_device = dev
+        self.lbl_dev_name.setText(f"{dev.get('brand', '')} {dev.get('model_name', '')} ({dev.get('storage', '')}) — {dev.get('color', '')}")
+        self.lbl_dev_serial.setText(f"كود: {dev.get('stock_no', '')} | IMEI: {dev.get('imei1', '')}")
+        self.lbl_dev_cond.setText(f"{dev.get('condition', '')} | {dev.get('tax_status', '')}")
+        target_price = float(dev.get("target_selling_price") or 0.0)
+        min_price = float(dev.get("min_allowed_price") or 0.0)
+        self.lbl_dev_target.setText(f"{target_price:,.2f} ج.م")
+        self.lbl_dev_min.setText(f"{min_price:,.2f} ج.م")
+        self.sp_final_price.setValue(target_price)
+        self.sp_final_price.setFocus()
+        self.sp_final_price.selectAll()
+
     def _on_method_changed(self):
         method = self.cb_method.currentText()
         is_instapay = "InstaPay" in method or "Vodafone" in method

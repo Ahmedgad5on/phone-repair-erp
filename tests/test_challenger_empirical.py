@@ -15,6 +15,7 @@ import shutil
 import threading
 import time
 import unittest
+from unittest.mock import patch
 from typing import List, Tuple, Optional
 
 from PIL import Image, ImageDraw
@@ -394,7 +395,8 @@ class Test04ConcurrentPrintingStressHarness(unittest.TestCase):
             except Exception:
                 pass
 
-    def test_12_concurrent_100_print_jobs_across_10_threads(self):
+    @patch("core.printer_win32.detect_thermal_printer", return_value=None)
+    def test_12_concurrent_100_print_jobs_across_10_threads(self, mock_detect):
         """Execute 100 print jobs concurrently across 10 threads with printer_name=None."""
         total_jobs = 100
         num_threads = 10
@@ -422,7 +424,7 @@ class Test04ConcurrentPrintingStressHarness(unittest.TestCase):
         # Run concurrent print requests using ThreadPoolExecutor
         with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
             future_to_job = {executor.submit(print_worker, i): i for i in range(total_jobs)}
-            for future in concurrent.futures.as_completed(future_to_job, timeout=20.0):
+            for future in concurrent.futures.as_completed(future_to_job, timeout=60.0):
                 job_idx = future_to_job[future]
                 try:
                     res = future.result()

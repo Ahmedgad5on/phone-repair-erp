@@ -422,7 +422,8 @@ class DeviceDetectorWorker(QObject):
             )
             # Only dispatch specs_received when a new device connects or state/identity transitions.
             # Never spam duplicate specs periodically, allowing user edits and color overrides to persist cleanly.
-            if current_id != self._last_device_id or state_changed:
+            time_elapsed = (now - self._last_processed_time >= 2.0)
+            if current_id != self._last_device_id or state_changed or time_elapsed:
                 self._last_device_id = current_id
                 self._last_processed_time = now
                 self._active_specs = active_specs

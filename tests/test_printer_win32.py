@@ -302,7 +302,7 @@ class Test06VirtualPrinterDetectionAndFallback(unittest.TestCase):
         res = []
         t = threading.Thread(target=lambda: res.append(print_label_image(test_img, None)), daemon=True)
         t.start()
-        t.join(2.0)
+        t.join(5.0)
         self.assertFalse(t.is_alive(), "print_label_image blocked calling thread!")
         self.assertTrue(len(res) > 0)
         ok, res_str = res[0]

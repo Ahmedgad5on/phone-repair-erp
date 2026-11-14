@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+exports/labels/*.png
+exports/labels/*.pdf
+data/*.db
+data/*.db-*
+.pytest_cache/

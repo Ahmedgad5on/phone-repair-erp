@@ -22,7 +22,7 @@ logging.basicConfig(
 logger = logging.getLogger("thermal_lab")
 
 APP_VERSION = "4.5.0"
-APP_USER_MODEL_ID = f"ProLab.MobileTradingERP.Studio.{APP_VERSION}"
+APP_USER_MODEL_ID = "ProLab.SmartLabeler.App.1.0"
 
 
 def set_app_user_model_id(app_id: str = APP_USER_MODEL_ID) -> bool:
@@ -30,7 +30,7 @@ def set_app_user_model_id(app_id: str = APP_USER_MODEL_ID) -> bool:
     if sys.platform == "win32":
         try:
             import ctypes
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
             return True
         except Exception as e:
             logger.warning("Failed to set AppUserModelID: %s", e)
