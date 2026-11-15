@@ -56,6 +56,16 @@ class TelegramSignals(QObject if HAS_PYQT else object):
         device_added_remote = pyqtSignal(dict)        # dev_dict when added via Telegram
 
 
+_active_bot_instance: Optional['TradingTelegramBot'] = None
+
+
+def trigger_immediate_queue_flush():
+    """Triggers immediate background flushing of offline_queue across all registered owners."""
+    global _active_bot_instance
+    if _active_bot_instance and _active_bot_instance.is_running:
+        _active_bot_instance.flush_queue()
+
+
 class TradingTelegramBot:
     """
     Two-Role Telegram Bot Manager supporting asyncio and long-polling.
@@ -79,6 +89,8 @@ class TradingTelegramBot:
 
     def start(self):
         """Starts the Telegram Bot in a separate daemon thread."""
+        global _active_bot_instance
+        _active_bot_instance = self
         self.token = self.db.get_setting("telegram_bot_token", "").strip()
         self.owner_chat_id = self.db.get_setting("telegram_owner_chat_id", "").strip()
 
@@ -98,21 +110,40 @@ class TradingTelegramBot:
         if HAS_PYQT:
             self.signals.bot_status_changed.emit(True, "Online & Connected")
 
-    def _emit_log(self, msg: str):
-        logger.info("[TelegramBot] %s", msg)
-        if HAS_PYQT:
-            try:
-                self.signals.log_message.emit(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
-            except Exception:
-                pass
-
     def stop(self):
+        global _active_bot_instance
+        if _active_bot_instance is self:
+            _active_bot_instance = None
         self.is_running = False
         if hasattr(self, '_thread') and self._thread and self._thread.is_alive():
             try:
                 self._thread.join(timeout=1.5)
             except Exception:
                 pass
+        if hasattr(self, '_queue_worker_thread') and self._queue_worker_thread and self._queue_worker_thread.is_alive():
+            try:
+                self._queue_worker_thread.join(timeout=1.0)
+            except Exception:
+                pass
+        if HAS_PYQT:
+            self.signals.bot_status_changed.emit(False, "Stopped")
+        self._emit_log("تم إيقاف خدمة البوت بنجاح.")
+
+    def flush_queue(self):
+        """Immediately processes offline_queue items in background without waiting for sleep timer."""
+        threading.Thread(target=self._process_queue_now, daemon=True, name="TelegramInstantFlush").start()
+
+    def _process_queue_now(self):
+        try:
+            pending = self.db.get_pending_telegram_queue(limit=20)
+            for item in pending:
+                success = self._dispatch_queue_item(item)
+                if success:
+                    self.db.mark_telegram_queue_status(item["id"], "sent")
+                else:
+                    self.db.mark_telegram_queue_status(item["id"], "retry", "Network unreachable")
+        except Exception as e:
+            logger.error("Error in instant Telegram queue flush: %s", e)
         if hasattr(self, '_queue_worker_thread') and self._queue_worker_thread and self._queue_worker_thread.is_alive():
             try:
                 self._queue_worker_thread.join(timeout=1.0)
