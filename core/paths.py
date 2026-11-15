@@ -41,15 +41,16 @@ def get_app_data_dir() -> Path:
     """
     if is_frozen():
         base = Path(sys.executable).parent.resolve()
-        desktop = (Path.home() / "Desktop").resolve()
-        if base == desktop or "temp" in str(base).lower():
+        local_data = base / "data"
+        # If running beside a populated local data directory (portable mode), use it
+        if local_data.exists() and local_data.is_dir() and (local_data / "app.db").exists():
+            data_dir = local_data
+        else:
             appdata = os.environ.get("APPDATA")
             if appdata:
                 data_dir = Path(appdata) / "ThermalLabPro" / "data"
             else:
-                data_dir = base / "data"
-        else:
-            data_dir = base / "data"
+                data_dir = local_data
     else:
         data_dir = get_bundle_dir() / "data"
     data_dir.mkdir(parents=True, exist_ok=True)

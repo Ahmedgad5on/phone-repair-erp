@@ -1087,6 +1087,8 @@ class MainWindow(QMainWindow):
         self._execute_print_active_label()
 
     def _on_device_intake_saved(self, dev_dict: dict):
+        if hasattr(self, "bot") and self.bot:
+            self.bot.flush_queue()
         if hasattr(self, "tab_intake"):
             self.tab_intake.refresh_recent_intakes()
         if hasattr(self, "tab_inventory"):
