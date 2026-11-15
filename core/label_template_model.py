@@ -284,8 +284,19 @@ def resolve_field_value(field_key: str, specs: Optional[DeviceSpecs], stock_numb
     elif field_key == "charge_cycles":
         return str(specs.battery_cycles) if specs.battery_cycles is not None else "142"
     elif field_key in ("battery_life", "battery", "battery_health", "battery_pct"):
-        if specs is not None and specs.battery_health is not None:
-            return f"{specs.battery_health}%"
+        if specs is not None:
+            is_apple = (
+                getattr(specs, "is_apple", False)
+                or (getattr(specs, "brand", "") or "").lower() == "apple"
+                or getattr(specs, "connection_type", "") == "ios"
+                or "iphone" in (getattr(specs, "marketing_name", "") or "").lower()
+                or "ipad" in (getattr(specs, "marketing_name", "") or "").lower()
+                or "ios" in (getattr(specs, "os_version", "") or "").lower()
+            )
+            if is_apple and specs.battery_health is not None and specs.battery_health > 0:
+                return f"{specs.battery_health}%"
+            if not is_apple:
+                return ""
         return "100%"
     elif field_key == "remarks":
         return specs.remarks or "Clean"
