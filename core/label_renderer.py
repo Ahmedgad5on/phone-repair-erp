@@ -658,12 +658,13 @@ def format_compact_smart_merge(
     marketing_name: str,
     storage: str,
     color: str,
-    battery_health: Optional[int]
+    battery_health: Optional[int],
+    is_apple: bool = False
 ) -> str:
     """
     Returns the authoritative Compact Smart Merge string:
     'Model - Storage - Color - Battery%'
-    Omit battery if None or <= 0.
+    Omit battery if None or <= 0 or not an Apple device.
     """
     parts = []
     if marketing_name and marketing_name.strip():
@@ -672,7 +673,7 @@ def format_compact_smart_merge(
         parts.append(storage.strip())
     if color and color.strip():
         parts.append(color.strip())
-    if battery_health is not None and battery_health > 0:
+    if is_apple and battery_health is not None and battery_health > 0:
         parts.append(f"{battery_health}%")
     return " - ".join(parts)
 
@@ -810,7 +811,8 @@ def render_device_specs_label(
                     curr_y += 14
 
             elif fid == "battery_diag":
-                if specs.battery_health and specs.battery_health > 0:
+                is_apple = getattr(specs, "is_apple", False) or (getattr(specs, "brand", "") or "").lower() == "apple" or "iphone" in (getattr(specs, "marketing_name", "") or "").lower()
+                if is_apple and specs.battery_health and specs.battery_health > 0:
                     b_info = f"Battery: {specs.battery_health}%"
                     if specs.battery_cycles:
                         b_info += f" ({specs.battery_cycles} Cycles)"
@@ -905,11 +907,13 @@ def render_device_specs_label(
             draw.text((bx + 2, curr_y + 1), badge_text, font=f_badge, fill=1)
         curr_y += 18
 
-        # 3. Specs Pill: Storage • Color • Battery
+        # 3. Specs Pill: Storage • Color • Battery (Apple only)
         specs_pill = []
         if specs.storage: specs_pill.append(specs.storage)
         if specs.color: specs_pill.append(specs.color)
-        if specs.battery_health and specs.battery_health > 0: specs_pill.append(f"🔋{specs.battery_health}%")
+        is_apple = getattr(specs, "is_apple", False) or (getattr(specs, "brand", "") or "").lower() == "apple" or "iphone" in (getattr(specs, "marketing_name", "") or "").lower()
+        if is_apple and specs.battery_health and specs.battery_health > 0:
+            specs_pill.append(f"🔋{specs.battery_health}%")
         pill_str = " | ".join(specs_pill)
         if pill_str:
             draw.text((margin_px, curr_y), pill_str, font=f_sub, fill=0)
