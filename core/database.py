@@ -758,7 +758,15 @@ class DatabaseManager:
             """, (now_iso, item_type, payload_str))
             item_id = cur.lastrowid
             conn.commit()
-            return item_id
+
+        # Trigger immediate background flush so Telegram notification is dispatched instantaneously
+        try:
+            from core.telegram_bot import trigger_immediate_queue_flush
+            trigger_immediate_queue_flush()
+        except Exception:
+            pass
+
+        return item_id
 
     def get_pending_telegram_queue(self, limit: int = 20) -> List[Dict[str, Any]]:
         with self._lock:
@@ -1102,6 +1110,8 @@ class DatabaseManager:
             try:
                 cond_str = "🆕 جديد متبرشم" if device.condition == "New" else "✨ مستعمل كسر زيرو"
                 exp_profit = device.target_selling_price - device.buy_price
+                is_apple = (device.brand or "").strip().lower() == "apple" or "iphone" in (device.model_name or "").strip().lower()
+                batt_line = f"🔋 <b>حالة البطارية:</b> {device.battery_health}%\n" if (is_apple and device.battery_health) else ""
                 intake_msg = (
                     "📥 <b>إشعار إضافة جهاز جديد للمخزن</b>\n"
                     "━━━━━━━━━━━━━━━━━━━━\n"
@@ -1113,7 +1123,7 @@ class DatabaseManager:
                     f"💰 <b>سعر البيع المطلوب:</b> {device.target_selling_price:,.0f} ج.م\n"
                     f"🔒 <b>الحد الأدنى للبيع:</b> {device.min_allowed_price:,.0f} ج.م\n"
                     f"📈 <b>هامش الربح المتوقع:</b> {exp_profit:,.0f} ج.م\n"
-                    f"🔋 <b>حالة البطارية:</b> {device.battery_health or 'N/A'}%\n"
+                    f"{batt_line}"
                     f"🏷️ <b>الحالة والضريبة:</b> {cond_str} | {device.tax_status}\n"
                     f"🔖 <b>رقم السريال:</b> <code>{device.stock_no}</code>\n"
                     f"👤 <b>المصدر / البائع:</b> {device.seller_name or 'تاجر'}\n"

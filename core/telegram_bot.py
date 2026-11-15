@@ -244,6 +244,9 @@ class TradingTelegramBot:
         try:
             subs = self.db.get_telegram_subscribers()
             target_chats = [str(s["chat_id"]) for s in subs if s.get("role") == "Owner" and s.get("status") == "active"]
+            # Fallback: if no subscribers marked as Owner, notify any active subscriber
+            if not target_chats:
+                target_chats = [str(s["chat_id"]) for s in subs if s.get("status") == "active"]
         except Exception:
             pass
 
@@ -251,10 +254,22 @@ class TradingTelegramBot:
         if fallback and str(fallback) not in target_chats:
             target_chats.append(str(fallback))
 
+        # Also include configured staff chat IDs
+        try:
+            staff_str = self.db.get_setting("telegram_staff_chat_ids", "")
+            if staff_str:
+                for s_id in staff_str.split(","):
+                    s_id = s_id.strip()
+                    if s_id and s_id not in target_chats:
+                        target_chats.append(s_id)
+        except Exception:
+            pass
+
         # Strictly deduplicate chat IDs so no owner receives duplicate notifications
         target_chats = list(dict.fromkeys(target_chats))
 
         if not target_chats:
+            logger.warning("[TelegramBot] No target chat IDs found to dispatch offline item.")
             return False
 
         url = f"https://api.telegram.org/bot{self.token}/sendMessage"
@@ -271,8 +286,27 @@ class TradingTelegramBot:
                 res = requests.post(url, json=payload, timeout=8.0)
                 if res.status_code == 200:
                     any_success = True
-            except Exception:
-                pass
+                    self._emit_log(f"✅ تم إرسال إشعار تيليجرام بنجاح إلى ({cid})")
+                else:
+                    # Retry with plain text in case HTML entity parse error occurred
+                    logger.warning("Telegram HTML send failed (%s: %s), retrying as plain text...", res.status_code, res.text)
+                    import re
+                    clean_text = re.sub(r"<[^>]+>", "", text)
+                    fallback_payload = {
+                        "chat_id": cid,
+                        "text": clean_text
+                    }
+                    if reply_markup:
+                        fallback_payload["reply_markup"] = reply_markup
+                    res2 = requests.post(url, json=fallback_payload, timeout=8.0)
+                    if res2.status_code == 200:
+                        any_success = True
+                        self._emit_log(f"✅ تم إرسال إشعار تيليجرام (نص مباشر) إلى ({cid})")
+                    else:
+                        self._emit_log(f"⚠️ فشل إرسال إشعار تيليجرام إلى ({cid}): {res2.text}")
+            except Exception as e:
+                logger.error("Error dispatching telegram queue item: %s", e)
+                self._emit_log(f"⚠️ خطأ في الاتصال بتيليجرام: {e}")
         return any_success
 
     def send_direct_message(self, chat_id: Union[str, int], text: str, reply_markup: Optional[Dict[str, Any]] = None) -> bool:
