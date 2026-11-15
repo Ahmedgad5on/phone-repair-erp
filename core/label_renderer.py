@@ -1026,18 +1026,20 @@ def render_device_specs_label(
 
     if compact_merge:
         # Compact Smart Merge
+        is_apple = getattr(specs, "is_apple", False) or (getattr(specs, "brand", "") or "").lower() == "apple" or "iphone" in (getattr(specs, "marketing_name", "") or "").lower()
         merged_line = format_compact_smart_merge(
             model_name,
             specs.storage,
             specs.color,
-            specs.battery_health
+            specs.battery_health,
+            is_apple=is_apple
         )
         bb_m = draw.textbbox((0, 0), merged_line, font=f_main)
         if (bb_m[2] - bb_m[0]) > usable_w:
             # Wrap to 2 lines
             l1 = f"{model_name} {specs.storage}".strip()
             l2_parts = [specs.color]
-            if specs.battery_health and specs.battery_health > 0:
+            if is_apple and specs.battery_health and specs.battery_health > 0:
                 l2_parts.append(f"{specs.battery_health}%")
             if specs.sales_region:
                 l2_parts.append(specs.sales_region)
@@ -1081,7 +1083,8 @@ def render_device_specs_label(
         draw.text((margin_px, curr_y), color_reg, font=f_sub, fill=0)
         curr_y += 16
 
-        if specs.battery_health:
+        is_apple_full = getattr(specs, "is_apple", False) or (getattr(specs, "brand", "") or "").lower() == "apple" or "iphone" in (getattr(specs, "marketing_name", "") or "").lower()
+        if is_apple_full and specs.battery_health:
             bat_str = f"Battery: {specs.battery_health}% ({specs.battery_cycles or 0} Cycles)"
             draw.text((margin_px, curr_y), bat_str, font=f_sub, fill=0)
             curr_y += 16

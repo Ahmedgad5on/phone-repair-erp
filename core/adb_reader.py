@@ -1331,7 +1331,7 @@ class AdbReader:
             serial_number=serial_no,
             imei1=imei1,
             imei2=imei2,
-            battery_health=battery_health,
+            battery_health=None,  # Android does not provide standard battery health %; omitted to avoid customer confusion
             battery_cycles=battery_cycles,
             sales_region=props.get("ro.csc.sales_code") or None,
             bootloader_locked=bootloader_locked,
