@@ -164,6 +164,7 @@ class IntakeTradingTab(QWidget):
         specs_layout.addWidget(QLabel("الماركة (Brand):"), 1, 0)
         self.cb_brand = QComboBox()
         self.cb_brand.addItems(BRANDS)
+        self.cb_brand.currentTextChanged.connect(self._on_brand_changed)
         specs_layout.addWidget(self.cb_brand, 1, 1)
 
         # Model Name
