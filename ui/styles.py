@@ -22,8 +22,8 @@ Palette Tokens:
 from pathlib import Path
 
 # Core Design Tokens (Backward-compatible with tests and dialog imports)
-BG_ROOT = "#0A0A0E"
-BG_SURFACE = "#13131A"
+BG_ROOT = "#121212"
+BG_SURFACE = "#1E1E1E"
 BG_OBSIDIAN = "#0A0A0E"
 BG_PANEL = "#0E0E14"
 BG_PANEL_ALT = "#181822"
