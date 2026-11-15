@@ -28,6 +28,8 @@ class TestCentralServerAPI(unittest.TestCase):
         cls._orig_releases_dir = config.RELEASES_DIR
         cls._orig_priv_path = config.ED25519_PRIVATE_KEY_PATH
         cls._orig_pub_path = config.ED25519_PUBLIC_KEY_PATH
+        cls._orig_debug = config.DEBUG
+        config.DEBUG = True
 
         # Configure isolated temp directory for test database and keys
         cls.test_dir = tempfile.mkdtemp(prefix="prolab_server_test_")
@@ -61,6 +63,7 @@ class TestCentralServerAPI(unittest.TestCase):
         config.RELEASES_DIR = cls._orig_releases_dir
         config.ED25519_PRIVATE_KEY_PATH = cls._orig_priv_path
         config.ED25519_PUBLIC_KEY_PATH = cls._orig_pub_path
+        config.DEBUG = cls._orig_debug
         Ed25519LicensingEngine._private_key = None
         Ed25519LicensingEngine._public_key = None
         CentralDatabaseManager._instance = None

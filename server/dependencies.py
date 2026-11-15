@@ -35,13 +35,35 @@ def get_current_user_claims(
 
 
 def require_roles(allowed_roles: List[str]):
-    """Enforces server-side Role-Based Access Control (RBAC)."""
+    """Enforces server-side Role-Based Access Control (RBAC) with database-backed verification."""
     def role_checker(claims: Dict[str, Any] = Depends(get_current_user_claims)) -> Dict[str, Any]:
-        user_role = claims.get("role", "")
+        user_id = claims.get("sub", "")
+        token_role = claims.get("role", "")
+
+        db = CentralDatabaseManager.get_instance()
+        conn = db.get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT role, is_active FROM server_users WHERE user_id = ?;", (user_id,))
+        user_row = cur.fetchone()
+
+        if not user_row or not user_row["is_active"]:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="الحساب غير موجود أو تم تعطيله في الخادم المركزي.",
+                headers={"WWW-Authenticate": "Bearer"}
+            )
+
+        db_role = user_row["role"]
+        if db_role != token_role:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="صلاحيات الحساب في قاعدة البيانات لا تطابق رمز التفويض."
+            )
+
         # Super admin always has full privileges
-        if user_role == "super_admin":
+        if db_role == "super_admin":
             return claims
-        if user_role not in allowed_roles:
+        if db_role not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"غير مصرح لك بتنفيذ هذه العملية. تتطلب صلاحيات: {', '.join(allowed_roles)}."

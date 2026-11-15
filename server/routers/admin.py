@@ -599,8 +599,11 @@ def publish_software_release(
     if clean_channel not in ("stable", "beta", "internal"):
         clean_channel = "stable"
 
-    # Save package file to releases directory
-    filename = f"ThermalLabPro_v{clean_ver}_{clean_channel}_{package_file.filename}"
+    # Save package file to releases directory (sanitizing client filename against directory traversal)
+    clean_client_filename = os.path.basename(package_file.filename or "update.zip")
+    if not clean_client_filename or clean_client_filename in (".", ".."):
+        clean_client_filename = f"package_{secrets.token_hex(4)}.zip"
+    filename = f"ThermalLabPro_v{clean_ver}_{clean_channel}_{clean_client_filename}"
     dest_path = config.RELEASES_DIR / filename
 
     hasher = hashlib.sha256()

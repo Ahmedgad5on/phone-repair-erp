@@ -153,7 +153,7 @@ def register_customer(payload: RegisterRequest, req: Request):
         "تم إنشاء الحساب والتحقق من الهاتف بنجاح!" if phone_verified else "تم إنشاء الحساب بنجاح. تم إرسال رمز التحقق إلى هاتفك."
     )
 
-    return {
+    resp = {
         "success": True,
         "message": success_msg,
         "customer_id": customer_id,
@@ -162,8 +162,10 @@ def register_customer(payload: RegisterRequest, req: Request):
         "account_status": initial_status,
         "phone_verified": bool(phone_verified),
         "license_key": activated_key,
-        "debug_otp": debug_otp
     }
+    if config.DEBUG and debug_otp:
+        resp["debug_otp"] = debug_otp
+    return resp
 
 
 @router.post("/send-otp")
@@ -178,7 +180,10 @@ def send_phone_otp(payload: SendOTPRequest, req: Request):
     wa_url = res[3] if len(res) > 3 else None
     if not ok:
         raise HTTPException(status_code=429, detail=msg)
-    return {"success": True, "message": msg, "debug_otp": debug_otp, "whatsapp_url": wa_url}
+    resp = {"success": True, "message": msg, "whatsapp_url": wa_url}
+    if config.DEBUG and debug_otp:
+        resp["debug_otp"] = debug_otp
+    return resp
 
 
 @router.post("/verify-otp")
@@ -355,11 +360,10 @@ def forgot_password(payload: ForgotPasswordRequest):
     otp_svc = OTPVerificationService(db)
 
     clean_phone = otp_svc._normalize_phone(payload.phone_number)
-    # Generic safe response to prevent phone enumeration
+    # Generic safe response to prevent phone enumeration and OTP disclosure
     cur.execute("SELECT id FROM server_customers WHERE phone_number = ?;", (clean_phone,))
     if cur.fetchone():
-        ok, msg, debug_otp = otp_svc.generate_and_send_otp(clean_phone, purpose="PASSWORD_RESET")
-        return {"success": True, "message": "إذا كان هذا الرقم مسجلاً لدينا، فسيتم إرسال رمز التحقق إليه.", "debug_otp": debug_otp}
+        otp_svc.generate_and_send_otp(clean_phone, purpose="PASSWORD_RESET")
     return {"success": True, "message": "إذا كان هذا الرقم مسجلاً لدينا، فسيتم إرسال رمز التحقق إليه."}
 
 

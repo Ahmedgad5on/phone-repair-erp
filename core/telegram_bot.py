@@ -32,7 +32,7 @@ except ImportError:
     def pyqtSignal(*args, **kwargs):
         return None
 
-from core.database import DatabaseManager, encode_cost_cipher
+from core.database import DatabaseManager, encode_cost_cipher, verify_pin_hash
 from core.pdf_exporter import PDFReportExporter
 from core.paths import get_app_data_dir
 
@@ -74,6 +74,8 @@ class TradingTelegramBot:
         self.user_sessions: Dict[int, Dict[str, Any]] = {}
         # Pending discount / credit approval requests
         self.pending_approvals: Dict[str, Dict[str, Any]] = {}
+        # Failed PIN authentication attempts per chat_id for brute-force protection
+        self.failed_auth_attempts: Dict[int, List[float]] = {}
 
     def start(self):
         """Starts the Telegram Bot in a separate daemon thread."""
@@ -423,12 +425,24 @@ class TradingTelegramBot:
         role = self._get_user_role(chat_id)
 
         # 1. Authorization Commands
-        owner_pin = self.db.get_setting("owner_pin", "1234")
-        sales_pin = self.db.get_setting("sales_pin", "0000")
+        owner_pin_val = self.db.get_setting("owner_pin", "")
+        sales_pin_val = self.db.get_setting("sales_pin", "")
 
         if text.startswith("/auth_owner"):
+            now_ts = time_mod.time()
+            attempts = [t for t in self.failed_auth_attempts.get(chat_id, []) if now_ts - t < 900]
+            if len(attempts) >= 3:
+                self.send_direct_message(chat_id, "⛔ <b>تم حظر محاولات تسجيل الدخول مؤقتاً</b>\nتجاوزت الحد الأقصى للمحاولات الخاطئة (3 محاولات). يرجى الانتظار 15 دقيقة.")
+                return
+
             parts = text.split()
-            if len(parts) > 1 and parts[1] == owner_pin:
+            entered_pin = parts[1].strip() if len(parts) > 1 else ""
+            if not owner_pin_val:
+                self.send_direct_message(chat_id, "⚠️ لم يتم تعيين رمز مرور المالك في إعدادات النظام بعد.")
+                return
+
+            if entered_pin and verify_pin_hash(entered_pin, owner_pin_val):
+                self.failed_auth_attempts.pop(chat_id, None)
                 self.owner_chat_id = str(chat_id)
                 self.db.set_setting("telegram_owner_chat_id", str(chat_id))
                 self.user_sessions[chat_id] = {"role": "Owner"}
@@ -451,12 +465,30 @@ class TradingTelegramBot:
                 if HAS_PYQT:
                     self.signals.subscribers_updated.emit()
             else:
-                self.send_direct_message(chat_id, "❌ رمز المرور (PIN) غير صحيح.")
+                attempts.append(now_ts)
+                self.failed_auth_attempts[chat_id] = attempts
+                remaining = 3 - len(attempts)
+                if remaining > 0:
+                    self.send_direct_message(chat_id, f"❌ رمز المرور (PIN) غير صحيح. متبقي لديك {remaining} محاولات قبل الحظر المؤقت.")
+                else:
+                    self.send_direct_message(chat_id, "⛔ تم حظر محاولاتك مؤقتاً لمدة 15 دقيقة بسبب تكرار إدخال رمز غير صحيح.")
             return
 
         if text.startswith("/auth_sales"):
+            now_ts = time_mod.time()
+            attempts = [t for t in self.failed_auth_attempts.get(chat_id, []) if now_ts - t < 900]
+            if len(attempts) >= 3:
+                self.send_direct_message(chat_id, "⛔ <b>تم حظر محاولات تسجيل الدخول مؤقتاً</b>\nتجاوزت الحد الأقصى للمحاولات الخاطئة (3 محاولات). يرجى الانتظار 15 دقيقة.")
+                return
+
             parts = text.split()
-            if len(parts) > 1 and parts[1] == sales_pin:
+            entered_pin = parts[1].strip() if len(parts) > 1 else ""
+            if not sales_pin_val:
+                self.send_direct_message(chat_id, "⚠️ لم يتم تعيين رمز مرور المبيعات في إعدادات النظام بعد.")
+                return
+
+            if entered_pin and verify_pin_hash(entered_pin, sales_pin_val):
+                self.failed_auth_attempts.pop(chat_id, None)
                 self.user_sessions[chat_id] = {"role": "Salesperson"}
                 user_obj = msg.get("from", {})
                 fn = user_obj.get("first_name", "")
@@ -477,7 +509,13 @@ class TradingTelegramBot:
                 if HAS_PYQT:
                     self.signals.subscribers_updated.emit()
             else:
-                self.send_direct_message(chat_id, "❌ رمز المرور (PIN) غير صحيح.")
+                attempts.append(now_ts)
+                self.failed_auth_attempts[chat_id] = attempts
+                remaining = 3 - len(attempts)
+                if remaining > 0:
+                    self.send_direct_message(chat_id, f"❌ رمز المرور (PIN) غير صحيح. متبقي لديك {remaining} محاولات قبل الحظر المؤقت.")
+                else:
+                    self.send_direct_message(chat_id, "⛔ تم حظر محاولاتك مؤقتاً لمدة 15 دقيقة بسبب تكرار إدخال رمز غير صحيح.")
             return
 
         # Photo upload handler (InstaPay or Seller KYC)

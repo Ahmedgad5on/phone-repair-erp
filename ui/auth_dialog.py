@@ -501,9 +501,10 @@ class AuthDialog(QDialog):
             msg_box = QMessageBox(self)
             msg_box.setWindowTitle("تم إرسال كود التحقق (OTP)")
             msg_box.setIcon(QMessageBox.Icon.Information)
+            otp_display_line = f"كود التحقق الخاص بك هو: 【 {debug_otp} 】\n\n" if debug_otp else "تم إرسال الرمز عبر رسالة نصية قصيرة / واتساب.\n\n"
             msg_box.setText(
                 f"📩 تم إرسال كود التحقق بنجاح إلى الرقم: {phone}\n\n"
-                f"كود التحقق الخاص بك هو: 【 {debug_otp} 】\n\n"
+                f"{otp_display_line}"
                 f"• يرجى كتابة هذا الكود في خانة 'رمز التحقق' أدناه لتأكيد الحساب.\n"
                 f"• الكود صالح لمدة 5 دقائق."
             )

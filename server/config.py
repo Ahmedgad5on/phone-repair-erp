@@ -32,10 +32,30 @@ class ServerConfig:
     RELEASES_DIR: Path = RELEASES_DIR
 
     # Security & Tokens
-    SECRET_KEY: str = os.environ.get("SERVER_SECRET_KEY", "prolab-enterprise-licensing-secret-key-2026-apex-precision")
+    _env_secret = os.environ.get("SERVER_SECRET_KEY")
+    if not _env_secret:
+        _secret_file = KEYS_DIR / "jwt_secret.key"
+        if _secret_file.exists():
+            _env_secret = _secret_file.read_text(encoding="utf-8").strip()
+        else:
+            import secrets
+            _env_secret = secrets.token_hex(32)
+            try:
+                _secret_file.write_text(_env_secret, encoding="utf-8")
+            except Exception:
+                pass
+    SECRET_KEY: str = _env_secret
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
     REFRESH_TOKEN_EXPIRE_DAYS: int = int(os.environ.get("REFRESH_TOKEN_EXPIRE_DAYS", "30"))
+
+    # Allowed CORS Origins
+    ALLOWED_ORIGINS: list = [
+        o.strip() for o in os.environ.get(
+            "ALLOWED_ORIGINS",
+            "http://localhost:8000,http://127.0.0.1:8000,http://localhost:3000,http://127.0.0.1:3000"
+        ).split(",") if o.strip()
+    ]
 
     # Database: Supports SQLite (WAL mode) or PostgreSQL
     DATABASE_URL: str = os.environ.get("DATABASE_URL", f"sqlite:///{SERVER_DATA_DIR / 'licensing.db'}")

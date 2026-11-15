@@ -46,10 +46,10 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS Middleware (permits requests from web dashboard and desktop client)
+# CORS Middleware (restricted to explicit allowed origins with credentials)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=config.ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

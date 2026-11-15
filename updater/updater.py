@@ -93,6 +93,11 @@ def apply_update(target_dir: Path, package_path: Path) -> bool:
 
         logger.info("Extracting update package %s...", package_path)
         with zipfile.ZipFile(package_path, "r") as z:
+            target_base = temp_extract.resolve()
+            for member in z.infolist():
+                member_path = (temp_extract / member.filename).resolve()
+                if not str(member_path).startswith(str(target_base)):
+                    raise ValueError(f"Unsafe zip entry detected (path traversal attempt): {member.filename}")
             z.extractall(temp_extract)
 
         # Prepare rollback folder for any files that will be overwritten
