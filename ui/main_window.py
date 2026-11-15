@@ -171,41 +171,13 @@ class MainWindow(QMainWindow):
         self.btn_fast_adb = QPushButton("⚡ تفعيل ADB")
         self.btn_fast_adb.setFixedHeight(30)
         self.btn_fast_adb.setToolTip("إرشادات وتفعيل وضع نقل البيانات وتصحيح الأخطاء لهاتفك")
-        self.btn_fast_adb.setStyleSheet("""
-            QPushButton {
-                background-color: #2D2410;
-                color: #D4AF37;
-                border: 1px solid #D4AF37;
-                border-radius: 4px;
-                padding: 2px 6px;
-                font-weight: bold;
-                font-size: 11px;
-            }
-            QPushButton:hover {
-                background-color: #D4AF37;
-                color: #0D0D11;
-            }
-        """)
+        self.btn_fast_adb.setProperty("class", "primary")
         self.btn_fast_adb.clicked.connect(self._open_fast_adb_dialog)
         btn_box.addWidget(self.btn_fast_adb)
 
         self.btn_reread_usb = QPushButton("🔄 فحص (F1)")
         self.btn_reread_usb.setFixedHeight(30)
-        self.btn_reread_usb.setStyleSheet("""
-            QPushButton {
-                background-color: #1A1A24;
-                color: #F4F4F6;
-                border: 1px solid #282834;
-                border-radius: 4px;
-                padding: 2px 6px;
-                font-size: 11px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                border-color: #D4AF37;
-                color: #D4AF37;
-            }
-        """)
+        self.btn_reread_usb.setProperty("class", "secondary")
         self.btn_reread_usb.clicked.connect(self._on_f1_reread)
         btn_box.addWidget(self.btn_reread_usb)
 

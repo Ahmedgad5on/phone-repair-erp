@@ -68,6 +68,10 @@ def main():
     app.setApplicationName("ThermalLabPro Commercial ERP")
     app.setOrganizationName("ThermalLabPro")
 
+    # Load and apply global Obsidian & Gold theme across all windows and dialogs
+    from ui.styles import load_theme
+    app.setStyleSheet(load_theme())
+
     # Set global icon
     icon_path = get_asset_path("app_icon.ico")
     if icon_path.exists():

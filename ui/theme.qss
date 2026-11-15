@@ -52,21 +52,21 @@ QScrollArea {
 }
 
 /* Glass Card Surfaces */
-QFrame.card, QWidget.card, QFrame#card {
+QFrame.card, QWidget.card, QFrame#card, QFrame[class="card"], QFrame[class~="card"] {
     background-color: #13131A;
     border: 1px solid #242432;
     border-radius: 8px;
     padding: 12px;
 }
 
-QFrame.card-elevated {
+QFrame.card-elevated, QFrame#card-elevated, QFrame[class="card-elevated"], QFrame[class~="card-elevated"] {
     background-color: #181822;
     border: 1px solid #2E2E3E;
     border-radius: 8px;
     padding: 12px;
 }
 
-QFrame.card-highlight {
+QFrame.card-highlight, QFrame#card-highlight, QFrame[class="card-highlight"], QFrame[class~="card-highlight"] {
     background-color: #181822;
     border: 1px solid #D4AF37;
     border-radius: 8px;
@@ -83,7 +83,7 @@ QFrame#SidebarFrame {
     border-right: 1px solid #242432;
 }
 
-QPushButton.nav-btn {
+QPushButton.nav-btn, QPushButton[class="nav-btn"], QPushButton[class~="nav-btn"] {
     text-align: right;
     padding: 10px 14px;
     font-size: 13px;
@@ -95,12 +95,12 @@ QPushButton.nav-btn {
     margin: 2px 6px;
 }
 
-QPushButton.nav-btn:hover {
+QPushButton.nav-btn:hover, QPushButton[class="nav-btn"]:hover, QPushButton[class~="nav-btn"]:hover {
     background-color: #181822;
     color: #F4F4F7;
 }
 
-QPushButton.nav-btn:checked, QPushButton.nav-btn.active {
+QPushButton.nav-btn:checked, QPushButton.nav-btn.active, QPushButton[class="nav-btn"]:checked, QPushButton[class~="nav-btn"]:checked {
     background: qlineargradient(x1:1, y1:0, x2:0, y2:0, stop:0 rgba(212, 175, 55, 0.16), stop:1 rgba(212, 175, 55, 0.01));
     color: #D4AF37;
     border-right: 3px solid #D4AF37;
@@ -193,7 +193,7 @@ QPushButton:disabled {
 }
 
 /* Primary Brushed Gold Button */
-QPushButton.primary, QPushButton#btnPrimary {
+QPushButton.primary, QPushButton#btnPrimary, QPushButton[class="primary"], QPushButton[class~="primary"], QPushButton[primary="true"] {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #D4AF37, stop:1 #E5C158);
     color: #0A0A0E;
     border: 1px solid #D4AF37;
@@ -203,20 +203,20 @@ QPushButton.primary, QPushButton#btnPrimary {
     padding: 8px 20px;
 }
 
-QPushButton.primary:hover, QPushButton#btnPrimary:hover {
+QPushButton.primary:hover, QPushButton#btnPrimary:hover, QPushButton[class="primary"]:hover, QPushButton[primary="true"]:hover {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #E5C158, stop:1 #F5D77F);
     border-color: #F5D77F;
     color: #000000;
 }
 
-QPushButton.primary:pressed, QPushButton#btnPrimary:pressed {
+QPushButton.primary:pressed, QPushButton#btnPrimary:pressed, QPushButton[class="primary"]:pressed, QPushButton[primary="true"]:pressed {
     background-color: #B89628;
     border-color: #B89628;
     color: #000000;
 }
 
 /* Secondary Button */
-QPushButton.secondary {
+QPushButton.secondary, QPushButton[class="secondary"], QPushButton[class~="secondary"] {
     background-color: #1A1A24;
     color: #E5E7EB;
     border: 1px solid #323244;
@@ -225,14 +225,14 @@ QPushButton.secondary {
     font-weight: 600;
 }
 
-QPushButton.secondary:hover {
+QPushButton.secondary:hover, QPushButton[class="secondary"]:hover {
     background-color: #222230;
     border-color: #D4AF37;
     color: #F4F4F7;
 }
 
 /* Success Emerald Button */
-QPushButton.success {
+QPushButton.success, QPushButton[class="success"], QPushButton[class~="success"], QPushButton[success="true"] {
     background-color: #0E2A1E;
     color: #34D399;
     border: 1px solid #059669;
@@ -240,19 +240,19 @@ QPushButton.success {
     font-weight: 700;
 }
 
-QPushButton.success:hover {
+QPushButton.success:hover, QPushButton[class="success"]:hover, QPushButton[success="true"]:hover {
     background-color: #133D2B;
     border-color: #10B981;
     color: #6EE7B7;
 }
 
-QPushButton.success:pressed {
+QPushButton.success:pressed, QPushButton[class="success"]:pressed, QPushButton[success="true"]:pressed {
     background-color: #081B13;
     border-color: #047857;
 }
 
 /* Danger Crimson Button */
-QPushButton.danger {
+QPushButton.danger, QPushButton[class="danger"], QPushButton[class~="danger"], QPushButton[danger="true"] {
     background-color: #2A1215;
     color: #F87171;
     border: 1px solid #DC2626;
@@ -260,19 +260,19 @@ QPushButton.danger {
     font-weight: 700;
 }
 
-QPushButton.danger:hover {
+QPushButton.danger:hover, QPushButton[class="danger"]:hover, QPushButton[danger="true"]:hover {
     background-color: #3B181C;
     border-color: #EF4444;
     color: #FCA5A5;
 }
 
-QPushButton.danger:pressed {
+QPushButton.danger:pressed, QPushButton[class="danger"]:pressed, QPushButton[danger="true"]:pressed {
     background-color: #1C0B0D;
     border-color: #B91C1C;
 }
 
 /* Warning Amber Button */
-QPushButton.warning {
+QPushButton.warning, QPushButton[class="warning"], QPushButton[class~="warning"], QPushButton[warning="true"] {
     background-color: #2B1D0B;
     color: #FBBF24;
     border: 1px solid #D97706;
@@ -280,14 +280,14 @@ QPushButton.warning {
     font-weight: 700;
 }
 
-QPushButton.warning:hover {
+QPushButton.warning:hover, QPushButton[class="warning"]:hover, QPushButton[warning="true"]:hover {
     background-color: #3D2910;
     border-color: #F59E0B;
     color: #FDE68A;
 }
 
 /* Ghost / Flat Button */
-QPushButton.ghost {
+QPushButton.ghost, QPushButton[class="ghost"], QPushButton[class~="ghost"] {
     background-color: transparent;
     color: #9CA3AF;
     border: none;
@@ -295,7 +295,7 @@ QPushButton.ghost {
     padding: 6px 12px;
 }
 
-QPushButton.ghost:hover {
+QPushButton.ghost:hover, QPushButton[class="ghost"]:hover {
     background-color: #181822;
     color: #D4AF37;
 }
@@ -315,7 +315,7 @@ QLineEdit, QTextEdit, QPlainTextEdit {
 }
 
 QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {
-    border: 1.5px solid #D4AF37;
+    border: 1px solid #D4AF37;
     background-color: #1C1C26;
 }
 
@@ -335,7 +335,7 @@ QComboBox {
 }
 
 QComboBox:hover, QComboBox:focus {
-    border: 1.5px solid #D4AF37;
+    border: 1px solid #D4AF37;
     background-color: #1C1C26;
 }
 
@@ -373,7 +373,7 @@ QSpinBox, QDoubleSpinBox {
 }
 
 QSpinBox:focus, QDoubleSpinBox:focus {
-    border: 1.5px solid #D4AF37;
+    border: 1px solid #D4AF37;
     background-color: #1C1C26;
 }
 
@@ -408,7 +408,7 @@ QTabBar::tab:hover {
 QTabBar::tab:selected {
     background-color: #13131A;
     color: #D4AF37;
-    border-top: 2.5px solid #D4AF37;
+    border-top: 2px solid #D4AF37;
     border-bottom: 1px solid #13131A;
     font-weight: 700;
 }
@@ -615,7 +615,7 @@ QToolTip {
    12. Status Chips & Badges
    ============================================================================= */
 
-QLabel.badge-gold, QLabel.BadgeGold {
+QLabel.badge-gold, QLabel.BadgeGold, QLabel[class="badge-gold"], QLabel[class~="badge-gold"] {
     background-color: rgba(212, 175, 55, 0.14);
     color: #D4AF37;
     border: 1px solid #D4AF37;
@@ -625,7 +625,7 @@ QLabel.badge-gold, QLabel.BadgeGold {
     font-size: 11px;
 }
 
-QLabel.badge-emerald, QLabel.BadgeEmerald {
+QLabel.badge-emerald, QLabel.BadgeEmerald, QLabel[class="badge-emerald"], QLabel[class~="badge-emerald"] {
     background-color: rgba(16, 185, 129, 0.14);
     color: #10B981;
     border: 1px solid #10B981;
@@ -635,7 +635,7 @@ QLabel.badge-emerald, QLabel.BadgeEmerald {
     font-size: 11px;
 }
 
-QLabel.badge-crimson, QLabel.BadgeCrimson {
+QLabel.badge-crimson, QLabel.BadgeCrimson, QLabel[class="badge-crimson"], QLabel[class~="badge-crimson"] {
     background-color: rgba(239, 68, 68, 0.14);
     color: #EF4444;
     border: 1px solid #EF4444;
@@ -645,7 +645,7 @@ QLabel.badge-crimson, QLabel.BadgeCrimson {
     font-size: 11px;
 }
 
-QLabel.badge-amber, QLabel.BadgeAmber {
+QLabel.badge-amber, QLabel.BadgeAmber, QLabel[class="badge-amber"], QLabel[class~="badge-amber"] {
     background-color: rgba(245, 158, 11, 0.14);
     color: #F59E0B;
     border: 1px solid #F59E0B;
@@ -655,7 +655,7 @@ QLabel.badge-amber, QLabel.BadgeAmber {
     font-size: 11px;
 }
 
-QLabel.badge-cyan, QLabel.BadgeCyan {
+QLabel.badge-cyan, QLabel.BadgeCyan, QLabel[class="badge-cyan"], QLabel[class~="badge-cyan"] {
     background-color: rgba(14, 165, 233, 0.14);
     color: #38BDF8;
     border: 1px solid #0284C7;
