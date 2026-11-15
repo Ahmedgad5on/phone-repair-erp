@@ -552,14 +552,30 @@ class IntakeTradingTab(QWidget):
 
     def _on_condition_changed(self):
         is_new = self.btn_cond_new.isChecked()
+        is_apple = self.cb_brand.currentText().strip().lower() == "apple"
         if is_new:
-            self.sp_battery_health.setValue(100)
+            self.sp_battery_health.setValue(100 if is_apple else 0)
             self.sp_battery_cycles.setValue(0)
             self.sp_battery_health.setEnabled(False)
             self.sp_battery_cycles.setEnabled(False)
         else:
-            self.sp_battery_health.setEnabled(True)
+            self.sp_battery_health.setEnabled(is_apple)
+            if not is_apple:
+                self.sp_battery_health.setValue(0)
             self.sp_battery_cycles.setEnabled(True)
+
+    def _on_brand_changed(self, brand: str):
+        is_apple = brand.strip().lower() == "apple"
+        is_new = self.btn_cond_new.isChecked()
+        if not is_apple:
+            self.sp_battery_health.setValue(0)
+            self.sp_battery_health.setEnabled(False)
+        else:
+            if is_new:
+                self.sp_battery_health.setValue(100)
+                self.sp_battery_health.setEnabled(False)
+            else:
+                self.sp_battery_health.setEnabled(True)
 
     def _update_cipher_preview(self):
         amount = self.txt_buy_price.value()
@@ -616,8 +632,18 @@ class IntakeTradingTab(QWidget):
             self.txt_imei1.setText(specs.imei1)
         if specs.imei2:
             self.txt_imei2.setText(specs.imei2)
-        if specs.battery_health is not None:
+        is_apple = (
+            getattr(specs, "is_apple", False)
+            or (getattr(specs, "brand", "") or "").lower() == "apple"
+            or getattr(specs, "connection_type", "") == "ios"
+            or "iphone" in (getattr(specs, "marketing_name", "") or "").lower()
+        )
+        if is_apple and specs.battery_health is not None and int(specs.battery_health) > 0:
             self.sp_battery_health.setValue(int(specs.battery_health))
+            self.sp_battery_health.setEnabled(True)
+        else:
+            self.sp_battery_health.setValue(0)
+            self.sp_battery_health.setEnabled(False)
         if specs.battery_cycles is not None:
             self.sp_battery_cycles.setValue(int(specs.battery_cycles))
 
@@ -634,6 +660,10 @@ class IntakeTradingTab(QWidget):
         key = self.db.get_setting("cipher_key", DEFAULT_CIPHER_KEY)
         cipher = encode_cost_cipher(buy_p, key)
 
+        is_apple = (self.cb_brand.currentText().strip().lower() == "apple" or "iphone" in self.txt_model.text().strip().lower())
+        batt_health = self.sp_battery_health.value() if (is_apple and self.sp_battery_health.value() > 0) else None
+        batt_cycles = self.sp_battery_cycles.value() if (is_apple and self.sp_battery_cycles.value() > 0) else None
+
         return DeviceRecord(
             stock_no=self.db.get_next_stock_no(),
             condition=condition,
@@ -645,8 +675,8 @@ class IntakeTradingTab(QWidget):
             serial_number=self.txt_serial.text().strip(),
             imei1=self.txt_imei1.text().strip(),
             imei2=self.txt_imei2.text().strip(),
-            battery_health=self.sp_battery_health.value(),
-            battery_cycles=self.sp_battery_cycles.value(),
+            battery_health=batt_health,
+            battery_cycles=batt_cycles,
             tax_status=self.cb_tax_status.currentText(),
             ownership=self.cb_ownership.currentText(),
             buy_price=buy_p,

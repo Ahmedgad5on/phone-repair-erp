@@ -1059,7 +1059,17 @@ class MainWindow(QMainWindow):
 
         self.lbl_device_status.setText(f"✅ {model_display}")
         self.lbl_device_status.setStyleSheet("font-size: 12px; font-weight: bold; color: #10B981;")
-        self.lbl_device_details.setText(f"{capacity_str} | بطارية: {specs.battery_health or 'N/A'}%")
+
+        is_apple = (
+            getattr(specs, "is_apple", False)
+            or (getattr(specs, "brand", "") or "").lower() == "apple"
+            or getattr(specs, "connection_type", "") == "ios"
+            or "iphone" in (getattr(specs, "marketing_name", "") or "").lower()
+        )
+        if is_apple and specs.battery_health:
+            self.lbl_device_details.setText(f"{capacity_str} | بطارية: {specs.battery_health}%")
+        else:
+            self.lbl_device_details.setText(f"{capacity_str}")
 
         self.right_panel.set_status_message(f"Connected: {model_display}", success=True)
 
