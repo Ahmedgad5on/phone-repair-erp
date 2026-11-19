@@ -363,10 +363,10 @@
 
             <!-- Main Download CTA Button -->
             <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-8">
-                <a id="downloadBtn" href="https://github.com/Ahmedgad5on/phone-repair-erp/releases" target="_blank" class="w-full sm:w-auto bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 hover:from-amber-400 hover:to-amber-500 text-black font-black text-lg px-10 py-5 rounded-2xl shadow-2xl shadow-amber-500/30 transition-all transform hover:-translate-y-1 flex items-center justify-center gap-3">
+                <button id="downloadBtn" onclick="triggerDirectDownload()" class="w-full sm:w-auto bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 hover:from-amber-400 hover:to-amber-500 text-black font-black text-lg px-10 py-5 rounded-2xl shadow-2xl shadow-amber-500/30 transition-all transform hover:-translate-y-1 flex items-center justify-center gap-3 cursor-pointer">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                    <span>تحميل حزمة ThermalLabPro الكاملة (.ZIP)</span>
-                </a>
+                    <span>تحميل حزمة ThermalLabPro المباشرة (.ZIP)</span>
+                </button>
             </div>
             
             <p class="text-xs text-gray-400">حجم الملف: 120 ميجابايت تقريباً | متوافق مع كافة طابعات الفواتير والباركود الحرارية 203 DPI</p>
@@ -404,5 +404,62 @@
         </div>
     </footer>
 
+    <!-- Download Modal -->
+    <div id="downloadModal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md hidden flex items-center justify-center p-4">
+        <div class="glass-card max-w-lg w-full rounded-3xl p-8 gold-border-glow shadow-2xl relative text-right">
+            <button onclick="closeDownloadModal()" class="absolute top-5 left-5 text-gray-400 hover:text-white p-2">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+
+            <div class="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 mx-auto mb-5">
+                <svg class="w-8 h-8 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+            </div>
+
+            <h3 class="text-2xl font-black text-center text-white mb-2">جاري بدء التحميل المباشر...</h3>
+            <p class="text-sm text-center text-gray-300 mb-6">يتم الآن تجهيز حزمة <span class="text-amber-400 font-bold">ThermalLabPro v4.7.0</span> وبدء تنزيلها في متصفحك تلقائياً دون مغادرة الصفحة.</p>
+
+            <div class="w-full bg-white/5 rounded-full h-3 mb-6 overflow-hidden border border-white/10">
+                <div class="bg-gradient-to-r from-amber-500 to-amber-300 h-3 rounded-full animate-pulse w-full"></div>
+            </div>
+
+            <div class="bg-black/40 p-4 rounded-2xl border border-white/5 mb-6 text-xs text-gray-300 space-y-2">
+                <div class="font-bold text-amber-400 mb-1">📌 خطوات التشغيل السريعة:</div>
+                <div>1. بعد انتهاء التحميل، قم بفك ضغط ملف <code class="text-amber-300 bg-white/5 px-1 py-0.5 rounded">ThermalLabPro_v4.7.0.zip</code>.</div>
+                <div>2. اضغط مرتين على <code class="text-amber-300 bg-white/5 px-1 py-0.5 rounded">تثبيت_واختصار_سطح_المكتب.bat</code> لتثبيت الأيقونة والتعريفات.</div>
+                <div>3. افتح البرنامج، وانسخ رمز جهازك (<strong class="text-white">Machine ID</strong>) وأرسله للبائع لتفعيله فوراً.</div>
+            </div>
+
+            <div class="text-center text-xs text-gray-400">
+                إذا لم يبدأ التنزيل تلقائياً، 
+                <a id="directMirrorLink" href="https://github.com/Ahmedgad5on/phone-repair-erp/releases/download/v4.7.0/ThermalLabPro_v4.7.0.zip" class="text-amber-400 hover:underline font-bold">اضغط هنا للتحميل المباشر الفوري</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const DIRECT_DOWNLOAD_URL = "https://github.com/Ahmedgad5on/phone-repair-erp/releases/download/v4.7.0/ThermalLabPro_v4.7.0.zip";
+
+        function triggerDirectDownload() {
+            const modal = document.getElementById('downloadModal');
+            if (modal) {
+                modal.classList.remove('hidden');
+            }
+
+            // Trigger direct download without page reload
+            const dlAnchor = document.createElement('a');
+            dlAnchor.href = DIRECT_DOWNLOAD_URL;
+            dlAnchor.setAttribute('download', 'ThermalLabPro_v4.7.0.zip');
+            document.body.appendChild(dlAnchor);
+            dlAnchor.click();
+            document.body.removeChild(dlAnchor);
+        }
+
+        function closeDownloadModal() {
+            const modal = document.getElementById('downloadModal');
+            if (modal) {
+                modal.classList.add('hidden');
+            }
+        }
+    </script>
 </body>
 </html>

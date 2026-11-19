@@ -21,6 +21,15 @@ from core.licensing.client import DEFAULT_SERVER_URL
 logger = logging.getLogger("thermal_lab.licensing.updates")
 
 
+PUBLIC_UPDATE_MANIFEST_URL = "https://ahmedgad5on.github.io/phone-repair-erp/version.json"
+
+
+def _parse_version(v: str) -> Tuple[int, ...]:
+    import re
+    nums = re.findall(r"\d+", str(v))
+    return tuple(map(int, nums)) if nums else (0, 0, 0)
+
+
 class UpdateChecker:
     """Manages release update checks, downloads, and handoff to the standalone updater."""
 
@@ -34,9 +43,30 @@ class UpdateChecker:
         channel: str = "stable"
     ) -> Tuple[bool, Optional[Dict[str, Any]], str]:
         """
-        Queries server for available releases.
+        Queries server or public GitHub Pages manifest for available releases.
         Returns (has_update, update_info_dict, message).
         """
+        # 1. First check the cloud public website version.json manifest
+        try:
+            resp = requests.get(PUBLIC_UPDATE_MANIFEST_URL, timeout=6)
+            if resp.status_code == 200:
+                data = resp.json()
+                latest_ver = str(data.get("latest_version") or data.get("version", "0.0.0"))
+                if _parse_version(latest_ver) > _parse_version(current_version):
+                    update_info = {
+                        "latest_version": latest_ver,
+                        "current_version": current_version,
+                        "update_available": True,
+                        "is_mandatory": data.get("is_mandatory", False),
+                        "release_notes": data.get("release_notes", "تحديثات وإصلاحات جديدة."),
+                        "download_url": data.get("download_url", ""),
+                        "sha256": data.get("sha256", None)
+                    }
+                    return True, update_info, "تم العثور على تحديث جديد بنجاح."
+        except Exception as e:
+            logger.debug("Cloud manifest check skipped: %s", e)
+
+        # 2. Fallback to licensing API server if configured
         url = f"{self.server_url}/api/v1/updates/check"
         payload = {
             "current_version": current_version,
@@ -44,7 +74,7 @@ class UpdateChecker:
             "platform": sys.platform
         }
         try:
-            resp = requests.post(url, json=payload, timeout=10)
+            resp = requests.post(url, json=payload, timeout=6)
             if resp.status_code != 200:
                 return False, None, f"فشل التحقق من التحديثات (رمز: {resp.status_code})"
 
