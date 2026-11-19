@@ -1,8 +1,8 @@
 {
   "latest_version": "4.7.0",
   "is_mandatory": false,
-  "download_url": "https://ahmedgad5on.github.io/phone-repair-erp/downloads/ThermalLabPro_v4.7.0.zip",
+  "download_url": "https://media.githubusercontent.com/media/Ahmedgad5on/phone-repair-erp/main/docs/downloads/ThermalLabPro_Setup_v4.7.0.exe",
   "release_notes": "المنظومة التجارية الشاملة v4.7.0:\n- التعرف التلقائي الذكي على أجهزة Android و iOS عبر USB.\n- قراءة صحة بطارية iPhone بدقة وطباعتها على الملصق.\n- محرك الطباعة الحرارية 203 DPI ودعم كامل للغة العربية.\n- جرد المخزن السريع بالباركود الصوتي وتصدير إكسل.\n- نظام الحماية والتراخيص المشفرة ببصمة العتاد Ed25519.",
-  "sha256": "",
+  "sha256": "13e68da7ca9488994a738fb346d1c1922693b80cdc2ee83a646a74c8e6cf9b75",
   "published_at": "2026-11-19"
 }

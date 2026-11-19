@@ -365,7 +365,7 @@
             <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-8">
                 <button id="downloadBtn" onclick="triggerDirectDownload()" class="w-full sm:w-auto bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 hover:from-amber-400 hover:to-amber-500 text-black font-black text-lg px-10 py-5 rounded-2xl shadow-2xl shadow-amber-500/30 transition-all transform hover:-translate-y-1 flex items-center justify-center gap-3 cursor-pointer">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                    <span>تحميل حزمة ThermalLabPro المباشرة (.ZIP)</span>
+                    <span>تحميل برنامج ThermalLabPro المباشر (Setup.exe)</span>
                 </button>
             </div>
             
@@ -431,13 +431,13 @@
 
             <div class="text-center text-xs text-gray-400">
                 إذا لم يبدأ التنزيل تلقائياً، 
-                <a id="directMirrorLink" href="https://github.com/Ahmedgad5on/phone-repair-erp/releases/download/v4.7.0/ThermalLabPro_v4.7.0.zip" class="text-amber-400 hover:underline font-bold">اضغط هنا للتحميل المباشر الفوري</a>
+                <a id="directMirrorLink" href="https://media.githubusercontent.com/media/Ahmedgad5on/phone-repair-erp/main/docs/downloads/ThermalLabPro_Setup_v4.7.0.exe" class="text-amber-400 hover:underline font-bold">اضغط هنا للتحميل المباشر الفوري</a>
             </div>
         </div>
     </div>
 
     <script>
-        const DIRECT_DOWNLOAD_URL = "https://github.com/Ahmedgad5on/phone-repair-erp/releases/download/v4.7.0/ThermalLabPro_v4.7.0.zip";
+        const DIRECT_DOWNLOAD_URL = "https://media.githubusercontent.com/media/Ahmedgad5on/phone-repair-erp/main/docs/downloads/ThermalLabPro_Setup_v4.7.0.exe";
 
         function triggerDirectDownload() {
             const modal = document.getElementById('downloadModal');
