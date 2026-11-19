@@ -32,7 +32,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "installdrivers"; Description: "تثبيت وتفعيل خدمات تعريفات هواتف Android و iOS (ADB & usbmuxd)"; GroupDescription: "إعدادات التشغيل والتعريفات:"
 
 [Files]
-Source: "{#MySourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist_installer\ThermalLabPro.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist_installer\تثبيت_واختصار_سطح_المكتب.bat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist_installer\تعليمات_التشغيل_والتثبيت.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "install_drivers.bat"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
