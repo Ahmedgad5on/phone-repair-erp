@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # ==============================================================================
 VERSION_MAJOR = 4
 VERSION_MINOR = 7
-VERSION_PATCH = 1
+VERSION_PATCH = 2
 
 VERSION_TUPLE = (VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH)
 APP_VERSION = f"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_PATCH}"
@@ -32,6 +32,15 @@ APP_SUBTITLE = "Mobile Trading ERP & 203 DPI Thermal CAD"
 # Release Changelog & Update History
 # ==============================================================================
 RELEASE_HISTORY: List[Dict[str, Any]] = [
+    {
+        "version": "4.7.2",
+        "date": "2026-11-19",
+        "codename": "Titanium Enterprise",
+        "title": "تحديث جديد لنظام ThermalLabPro",
+        "changes": [
+            "تحديث جديد يتضمن تحسينات عامة في الأداء، واستقرار قراءة الهواتف، ودعم ميزات التراخيص الحديثة."
+        ]
+    },
     {
         "version": "4.7.1",
         "date": "2026-11-19",
