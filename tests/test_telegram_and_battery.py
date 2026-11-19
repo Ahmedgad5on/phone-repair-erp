@@ -90,6 +90,84 @@ class TestTelegramAndBattery(unittest.TestCase):
         # Apple intake message MUST contain battery health line
         self.assertIn("حالة البطارية:</b> 88%", latest_item["payload_json"])
 
+    def test_telegram_bot_emit_log_and_commands(self):
+        from core.telegram_bot import TradingTelegramBot
+        self.db.set_setting("telegram_bot_token", "123456789:ABCdefGHIjklMNOpqrsTUVwxyz")
+        self.db.set_setting("telegram_owner_chat_id", "1065573291")
+        self.db.set_setting("owner_pin", "1234")
+
+        bot = TradingTelegramBot(self.db)
+        # Test _emit_log does not raise AttributeError
+        bot._emit_log("Test log emission")
+
+        # Test execute_direct_command
+        help_res = bot.execute_direct_command("/help")
+        self.assertIn("دليل الأوامر", help_res)
+
+        status_res = bot.execute_direct_command("/status")
+        self.assertIn("حالة نظام تيليجرام", status_res)
+
+        # Test auth_owner with correct PIN
+        bot._handle_message({
+            "chat": {"id": 1065573291},
+            "text": "/auth_owner 1234",
+            "from": {"first_name": "Ahmed", "last_name": "Gad", "username": "ahmed"}
+        })
+        self.assertEqual(bot._get_user_role(1065573291), "Owner")
+
+    def test_telegram_card_and_lookup_battery_filter(self):
+        from core.telegram_bot import TradingTelegramBot
+        bot = TradingTelegramBot(self.db)
+
+        # Mock direct messages sent
+        sent_messages = []
+        bot.send_direct_message = lambda chat_id, text, reply_markup=None: sent_messages.append(text)
+
+        # Android card
+        android_dev = {
+            "id": 1,
+            "brand": "Samsung",
+            "model_name": "Galaxy S24",
+            "model_code": "SM-S921B",
+            "storage": "256GB",
+            "color": "Black",
+            "condition": "Used",
+            "tax_status": "Paid",
+            "battery_health": 90,
+            "battery_cycles": 120,
+            "target_selling_price": 30000,
+            "min_allowed_price": 28000,
+            "buy_price": 25000,
+            "secret_cost_cipher": "ABC",
+            "stock_no": "STK-SAM-1",
+            "imei1": "123456789012345"
+        }
+        bot._send_device_card(1065573291, android_dev, "Owner")
+        self.assertTrue(len(sent_messages) > 0)
+        self.assertNotIn("البطارية", sent_messages[-1])
+
+        # Apple card
+        apple_dev = {
+            "id": 2,
+            "brand": "Apple",
+            "model_name": "iPhone 15 Pro",
+            "model_code": "A3102",
+            "storage": "256GB",
+            "color": "Natural Titanium",
+            "condition": "Used",
+            "tax_status": "Paid",
+            "battery_health": 95,
+            "battery_cycles": 45,
+            "target_selling_price": 50000,
+            "min_allowed_price": 48000,
+            "buy_price": 42000,
+            "secret_cost_cipher": "XYZ",
+            "stock_no": "STK-APL-1",
+            "imei1": "987654321098765"
+        }
+        bot._send_device_card(1065573291, apple_dev, "Owner")
+        self.assertIn("البطارية:</b> 95%", sent_messages[-1])
+
 
 if __name__ == "__main__":
     unittest.main()

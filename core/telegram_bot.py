@@ -87,6 +87,15 @@ class TradingTelegramBot:
         # Failed PIN authentication attempts per chat_id for brute-force protection
         self.failed_auth_attempts: Dict[int, List[float]] = {}
 
+    def _emit_log(self, text: str):
+        """Emits a log message to logger and GUI terminal console."""
+        logger.info(text)
+        if HAS_PYQT and hasattr(self, 'signals') and hasattr(self.signals, 'log_message'):
+            try:
+                self.signals.log_message.emit(text)
+            except Exception:
+                pass
+
     def start(self):
         """Starts the Telegram Bot in a separate daemon thread."""
         global _active_bot_instance
@@ -144,14 +153,6 @@ class TradingTelegramBot:
                     self.db.mark_telegram_queue_status(item["id"], "retry", "Network unreachable")
         except Exception as e:
             logger.error("Error in instant Telegram queue flush: %s", e)
-        if hasattr(self, '_queue_worker_thread') and self._queue_worker_thread and self._queue_worker_thread.is_alive():
-            try:
-                self._queue_worker_thread.join(timeout=1.0)
-            except Exception:
-                pass
-        if HAS_PYQT:
-            self.signals.bot_status_changed.emit(False, "Stopped")
-        self._emit_log("تم إيقاف خدمة البوت بنجاح.")
 
     # ==========================================================================
     # Offline Queue & Scheduled Tasks Worker
@@ -326,6 +327,21 @@ class TradingTelegramBot:
             res = requests.post(url, json=payload, timeout=8.0)
             data = res.json()
             if not data.get("ok"):
+                # Fallback to plain text in case HTML parse error occurred
+                import re
+                clean_text = re.sub(r"<[^>]+>", "", text)
+                payload_fallback = {
+                    "chat_id": chat_id,
+                    "text": clean_text
+                }
+                if reply_markup:
+                    payload_fallback["reply_markup"] = reply_markup
+                try:
+                    res2 = requests.post(url, json=payload_fallback, timeout=8.0)
+                    if res2.json().get("ok"):
+                        return True
+                except Exception:
+                    pass
                 desc = data.get("description", "Unknown error")
                 self._emit_log(f"⚠️ فشل إرسال رسالة تيليجرام: {desc}")
                 return False
@@ -426,14 +442,18 @@ class TradingTelegramBot:
 
         while self.is_running:
             try:
-                url = f"https://api.telegram.org/bot{self.token}/getUpdates?offset={offset}&timeout=10"
-                res = requests.get(url, timeout=15.0)
+                url = f"https://api.telegram.org/bot{self.token}/getUpdates?offset={offset}&timeout=5"
+                res = requests.get(url, timeout=8.0)
                 if res.status_code == 200:
                     data = res.json()
                     if data.get("ok"):
                         for update in data.get("result", []):
                             offset = update["update_id"] + 1
-                            self._handle_update(update)
+                            try:
+                                self._handle_update(update)
+                            except Exception as ex:
+                                logger.error("Error handling Telegram update: %s", ex)
+                                self._emit_log(f"خطأ أثناء معالجة رسالة: {ex}")
                 elif res.status_code == 409:
                     self._emit_log("تنبيه 409: هناك جلسة بوت أخرى تعمل، جاري إعادة الضبط...")
                     time_mod.sleep(3.0)
@@ -905,9 +925,11 @@ class TradingTelegramBot:
             color_str = d["color"] or "-"
             storage_str = d["storage"] or "-"
             cost_str = f" | 💵 التكلفة: <b>{d['buy_price']:,.0f}</b>" if role == "Owner" else ""
+            is_apple = "apple" in (d.get("brand") or "").lower() or "iphone" in (d.get("model_name") or "").lower()
+            batt_text = f" | 🔋 {d['battery_health']}%" if (is_apple and d.get("battery_health")) else ""
             lines.append(
                 f"{i}. {cond_icon} <b>{d['brand']} {d['model_name']}</b> ({storage_str})\n"
-                f"    🎨 اللون: <b>{color_str}</b> | 🔋 {d['battery_health'] or 'N/A'}%{cost_str}\n"
+                f"    🎨 اللون: <b>{color_str}</b>{batt_text}{cost_str}\n"
                 f"    💰 سعر البيع: <b>{d['target_selling_price']:,.0f} ج.م</b> (أدنى: {d['min_allowed_price']:,.0f})\n"
                 f"    🔖 كود: <code>{d['stock_no']}</code>\n"
             )
@@ -921,6 +943,7 @@ class TradingTelegramBot:
         cond_str = "🆕 جديد متبرشم" if dev["condition"] == "New" else "✨ مستعمل كسر زيرو"
         exp_profit = dev["target_selling_price"] - dev["buy_price"]
         ram_str = f" | RAM: {dev['ram']}" if dev.get("ram") else ""
+        is_apple = "apple" in (dev.get("brand") or "").lower() or "iphone" in (dev.get("model_name") or "").lower()
         lines = [
             "📱 <b>بطاقة بيانات الجهاز</b>",
             "━━━━━━━━━━━━━━━━━━━━",
@@ -928,10 +951,14 @@ class TradingTelegramBot:
             f"📦 <b>الموديل والسعة:</b> {dev['model_code'] or '-'} ({dev['storage'] or '-'}{ram_str})",
             f"🎨 <b>اللون:</b> {dev['color'] or '-'}",
             f"🏷️ <b>الحالة والضريبة:</b> {cond_str} | {dev['tax_status']}",
-            f"🔋 <b>البطارية:</b> {dev['battery_health'] or 'N/A'}% ({dev['battery_cycles'] or 0} دورة)",
+        ]
+        if is_apple and (dev.get("battery_health") or dev.get("battery_cycles")):
+            batt_cycles_str = f" ({dev['battery_cycles']} دورة)" if dev.get("battery_cycles") else ""
+            lines.append(f"🔋 <b>البطارية:</b> {dev['battery_health'] or 'N/A'}%{batt_cycles_str}")
+        lines.extend([
             f"💰 <b>سعر البيع المطلوب:</b> {dev['target_selling_price']:,.0f} ج.م",
             f"🔒 <b>أقل سعر مسموح للبيع:</b> {dev['min_allowed_price']:,.0f} ج.م"
-        ]
+        ])
 
         if role == "Owner":
             lines.extend([
@@ -1068,7 +1095,8 @@ class TradingTelegramBot:
         for brand_name, d_list in sorted(grouped.items()):
             lines.append(f"\n🏷️ <b>ماركة {brand_name} ({len(d_list)} جهاز):</b>")
             for d in d_list[:6]:
-                batt_str = f" | 🔋 {d['battery_health']}%" if d.get("battery_health") else ""
+                is_apple = "apple" in (d.get("brand") or "").lower() or "iphone" in (d.get("model_name") or "").lower()
+                batt_str = f" | 🔋 {d['battery_health']}%" if (is_apple and d.get("battery_health")) else ""
                 lines.append(
                     f" • <b>{d['brand']} {d['model_name']}</b> ({d['storage'] or '-'})\n"
                     f"   🎨 {d['color'] or '-'}{batt_str} | 💰 {d['target_selling_price']:,.0f} ج.م | 🔖 <code>{d['stock_no']}</code>"

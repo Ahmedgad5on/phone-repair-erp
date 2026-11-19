@@ -508,8 +508,8 @@ class DatabaseManager:
                 ("store_address", "Alexandria, Egypt"),
                 ("currency", "EGP"),
                 ("cipher_key", DEFAULT_CIPHER_KEY),
-                ("owner_pin", hash_pin("1234")),
-                ("sales_pin", hash_pin("0000")),
+                ("owner_pin", "1234"),
+                ("sales_pin", "0000"),
                 ("telegram_bot_token", ""),
                 ("telegram_owner_chat_id", ""),
                 ("telegram_staff_chat_ids", ""),
@@ -520,6 +520,10 @@ class DatabaseManager:
             ]
             for k, v in defaults:
                 cur.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?);", (k, v))
+
+            # Auto-heal: sanitize any accidental salted hash stored in PIN settings to clean defaults
+            cur.execute("UPDATE app_settings SET value = '1234' WHERE key = 'owner_pin' AND value LIKE '%$%';")
+            cur.execute("UPDATE app_settings SET value = '0000' WHERE key = 'sales_pin' AND value LIKE '%$%';")
 
             conn.commit()
             logger.info("Database schema verified and initialized in WAL mode.")
@@ -544,18 +548,11 @@ class DatabaseManager:
             conn.commit()
 
     def verify_pin(self, pin: str, role: str = "Owner") -> bool:
-        """Verifies entered PIN for given role, automatically migrating plaintext to salted hash."""
+        """Verifies entered PIN for given role using timing-safe comparison."""
         key = "owner_pin" if role == "Owner" else "sales_pin"
         default = "1234" if role == "Owner" else "0000"
         stored = self.get_setting(key, default)
-        if verify_pin_hash(pin, stored):
-            if "$" not in stored:
-                try:
-                    self.set_setting(key, hash_pin(pin))
-                except Exception:
-                    pass
-            return True
-        return False
+        return verify_pin_hash(pin, stored)
 
     def get_owner_pin(self) -> str:
         """Returns the configured owner PIN."""

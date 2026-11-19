@@ -441,13 +441,20 @@ class TelegramHubTab(QWidget):
 
     def _wire_bot_signals(self):
         if self.bot and hasattr(self.bot, 'signals'):
-            try:
-                self.bot.signals.log_message.connect(self.append_log)
-                self.bot.signals.bot_status_changed.connect(self._on_bot_status_changed)
-                if hasattr(self.bot.signals, 'subscribers_updated'):
-                    self.bot.signals.subscribers_updated.connect(self._refresh_subscribers_table)
-            except Exception:
-                pass
+            for sig, slot in [
+                (self.bot.signals.log_message, self.append_log),
+                (self.bot.signals.bot_status_changed, self._on_bot_status_changed),
+                (getattr(self.bot.signals, 'subscribers_updated', None), self._refresh_subscribers_table)
+            ]:
+                if sig is not None:
+                    try:
+                        sig.disconnect(slot)
+                    except Exception:
+                        pass
+                    try:
+                        sig.connect(slot)
+                    except Exception:
+                        pass
 
     # --------------------------------------------------------------------------
     # Main Modern Shell
@@ -1091,7 +1098,11 @@ class TelegramHubTab(QWidget):
     # --------------------------------------------------------------------------
 
     def append_log(self, text: str):
-        pass  # Keep background logs quiet unless in console
+        if hasattr(self, 'txt_terminal'):
+            ts = datetime.now().strftime("%H:%M:%S")
+            self.txt_terminal.append(f"<span style='color: #94A3B8;'>[{ts}] {text}</span>")
+            sb = self.txt_terminal.verticalScrollBar()
+            sb.setValue(sb.maximum())
 
     def _copy_to_clipboard(self, text: str):
         QApplication.clipboard().setText(text)
@@ -1127,6 +1138,14 @@ class TelegramHubTab(QWidget):
         owner_pin = self.db.get_setting("owner_pin", "1234")
         sales_pin = self.db.get_setting("sales_pin", "0000")
 
+        # Sanitize any accidental hash string to clean readable defaults
+        if "$" in owner_pin:
+            owner_pin = "1234"
+            self.db.set_setting("owner_pin", "1234")
+        if "$" in sales_pin:
+            sales_pin = "0000"
+            self.db.set_setting("sales_pin", "0000")
+
         self.txt_token.setText(token)
         self.txt_owner_chat_id.setText(owner_id)
         self.txt_staff_chat_ids.setText(staff_ids)
@@ -1156,12 +1175,22 @@ class TelegramHubTab(QWidget):
             self.badge_s2.setText("بانتظار الربط ⏳")
             self.badge_s2.setStyleSheet("background-color: #222230; color: #A1A1AA; border-radius: 4px; padding: 3px 8px; font-size: 11px;")
 
-        if token and owner_id:
-            self.lbl_status_badge.setText("🟢 جاهز للعمل")
+        is_bot_running = bool(self.bot and getattr(self.bot, 'is_running', False))
+        if is_bot_running:
+            self.lbl_status_badge.setText("🟢 متصل")
             self.lbl_status_badge.setStyleSheet("background-color: #122B1E; color: #10B981; border: 1px solid #10B981; border-radius: 4px; padding: 3px 8px; font-weight: bold; font-size: 11px;")
+            self.btn_start.setEnabled(False)
+            self.btn_stop.setEnabled(True)
+        elif token and owner_id:
+            self.lbl_status_badge.setText("🟡 جاهز للتشغيل")
+            self.lbl_status_badge.setStyleSheet("background-color: #2D2410; color: #F59E0B; border: 1px solid #F59E0B; border-radius: 4px; padding: 3px 8px; font-weight: bold; font-size: 11px;")
+            self.btn_start.setEnabled(True)
+            self.btn_stop.setEnabled(False)
         else:
             self.lbl_status_badge.setText("🔴 غير مكتمل")
             self.lbl_status_badge.setStyleSheet("background-color: #2D1A1A; color: #EF4444; border: 1px solid #EF4444; border-radius: 4px; padding: 3px 8px; font-weight: bold; font-size: 11px;")
+            self.btn_start.setEnabled(True)
+            self.btn_stop.setEnabled(False)
 
     def _verify_and_save_step1(self):
         token = self.txt_token.text().strip()
@@ -1197,6 +1226,15 @@ class TelegramHubTab(QWidget):
         username = self.txt_bot_username.text().strip()
         owner_pin = self.txt_owner_pin.text().strip() or "1234"
         sales_pin = self.txt_sales_pin.text().strip() or "0000"
+
+        # Validate that user did not paste bot token into chat_id field
+        if ":" in owner_id and len(owner_id) > 20:
+            QMessageBox.warning(self, "تنبيه", "يبدو أنك ألصقت توكن البوت في حقل Chat ID للمالك! يرجى إدخال رقم المعرف الرقمي الخاص بحسابك (مثال: 1065573291).")
+            return
+
+        if ":" in staff_ids and len(staff_ids) > 20:
+            QMessageBox.warning(self, "تنبيه", "يبدو أنك ألصقت توكن البوت في حقل معرفات الموظفين!")
+            return
 
         self.db.set_setting("telegram_bot_token", token)
         self.db.set_setting("telegram_owner_chat_id", owner_id)
@@ -1275,6 +1313,7 @@ class TelegramHubTab(QWidget):
     def _open_add_device_dialog(self):
         dlg = AddDeviceDialog(self.db, self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._load_current_credentials()
             self._refresh_subscribers_table()
 
     def _open_broadcast_dialog(self):
@@ -1303,6 +1342,9 @@ class TelegramHubTab(QWidget):
         cur_role = self.table_subscribers.item(row, 0).text()
         new_role = "Salesperson" if "صاحب المحل" in cur_role else "Owner"
         self.db.update_telegram_subscriber_role(cid, new_role)
+        if new_role == "Owner":
+            self.db.set_setting("telegram_owner_chat_id", cid)
+            self._load_current_credentials()
         self._refresh_subscribers_table()
 
     def _delete_selected_subscriber(self):
@@ -1312,30 +1354,47 @@ class TelegramHubTab(QWidget):
         cid = self.table_subscribers.item(row, 2).text()
         if QMessageBox.question(self, "تأكيد", f"هل تريد حذف الهاتف ({cid})؟") == QMessageBox.StandardButton.Yes:
             self.db.delete_telegram_subscriber(cid)
+            if self.db.get_setting("telegram_owner_chat_id", "") == cid:
+                self.db.set_setting("telegram_owner_chat_id", "")
+                self._load_current_credentials()
             self._refresh_subscribers_table()
 
     def _on_bot_status_changed(self, is_online: bool, msg: str):
         if is_online:
             self.lbl_status_badge.setText("🟢 متصل")
             self.lbl_status_badge.setStyleSheet("background-color: #122B1E; color: #10B981; border: 1px solid #10B981; border-radius: 4px; padding: 3px 8px; font-weight: bold; font-size: 11px;")
+            self.btn_start.setEnabled(False)
+            self.btn_stop.setEnabled(True)
         else:
             self.lbl_status_badge.setText("🔴 متوقف")
             self.lbl_status_badge.setStyleSheet("background-color: #2D1A1A; color: #EF4444; border: 1px solid #EF4444; border-radius: 4px; padding: 3px 8px; font-weight: bold; font-size: 11px;")
+            self.btn_start.setEnabled(True)
+            self.btn_stop.setEnabled(False)
 
     def _on_start_bot_clicked(self):
+        self.lbl_status_badge.setText("⏳ جاري التشغيل...")
+        self.lbl_status_badge.setStyleSheet("background-color: #2D2410; color: #F59E0B; border: 1px solid #F59E0B; border-radius: 4px; padding: 3px 8px; font-weight: bold; font-size: 11px;")
         self.start_bot_requested.emit()
 
     def _on_stop_bot_clicked(self):
+        self.lbl_status_badge.setText("⏳ جاري الإيقاف...")
+        self.lbl_status_badge.setStyleSheet("background-color: #2D1A1A; color: #EF4444; border: 1px solid #EF4444; border-radius: 4px; padding: 3px 8px; font-weight: bold; font-size: 11px;")
         self.stop_bot_requested.emit()
 
     def _reset_webhook_conflict(self):
         token = self.txt_token.text().strip()
         if not token:
+            QMessageBox.warning(self, "تنبيه", "أدخل توكن البوت أولاً.")
             return
         try:
-            r = requests.get(f"https://api.telegram.org/bot{token}/deleteWebhook?drop_pending_updates=False", timeout=6)
+            r = requests.get(f"https://api.telegram.org/bot{token}/deleteWebhook?drop_pending_updates=True", timeout=6)
+            if self.bot and hasattr(self.bot, 'failed_auth_attempts'):
+                self.bot.failed_auth_attempts.clear()
             if r.json().get("ok"):
-                QMessageBox.information(self, "نجاح", "تم فك التعارض وإعادة ضبط الاستماع بنجاح.")
+                QMessageBox.information(self, "نجاح", "تم فك التعارض، ومسح التحديثات العالقة، وإلغاء أي حظر مؤقت بنجاح.")
+                self.append_log("🔄 تم فك التعارض ومسح التحديثات العالقة بنجاح.")
+            else:
+                QMessageBox.warning(self, "تنبيه", f"رد تيليجرام: {r.json().get('description')}")
         except Exception as e:
             QMessageBox.critical(self, "خطأ", f"تعذر الاتصال: {e}")
 
