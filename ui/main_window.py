@@ -75,6 +75,23 @@ from ui.customer_profile_dialog import CustomerProfileDialog
 logger = logging.getLogger(__name__)
 
 
+class SilentUpdateWorker(QThread):
+    """Downloads update package in the background without blocking the UI."""
+    download_finished = pyqtSignal(bool, object, str)
+
+    def __init__(self, checker: UpdateChecker, download_url: str, expected_sha256: Optional[str] = None):
+        super().__init__()
+        self.checker = checker
+        self.download_url = download_url
+        self.expected_sha256 = expected_sha256
+
+    def run(self):
+        success, pkg_path, msg = self.checker.download_update_package(
+            self.download_url, expected_sha256=self.expected_sha256
+        )
+        self.download_finished.emit(success, pkg_path, msg)
+
+
 class MainWindow(QMainWindow):
     """
     Primary Commercial Desktop Window for Mobile Phone Trading Store.
@@ -785,14 +802,50 @@ class MainWindow(QMainWindow):
             checker = UpdateChecker()
             has_update, update_info, _ = checker.check_for_updates()
             if has_update and update_info:
-                up_dlg = UpdateDialog(update_info=update_info, parent=self, checker=checker)
-                up_dlg.exec()
+                # Trigger silent background auto-update with zero user intervention
+                self._start_silent_auto_update(checker, update_info)
             elif manual:
                 QMessageBox.information(self, "فحص التحديثات", "🎉 أنت تستخدم أحدث إصدار متوفر بالفعل!")
         except Exception as e:
             logger.debug("Background update/heartbeat exception: %s", e)
             if manual:
                 QMessageBox.warning(self, "فحص التحديثات", f"تعذر التحقق من التحديثات:\n{e}")
+
+    def _start_silent_auto_update(self, checker: UpdateChecker, update_info: dict):
+        """Begins silent background download and self-updating without user intervention."""
+        dl_url = update_info.get("download_url")
+        if not dl_url:
+            return
+        logger.info("Silent auto-update triggered for v%s from %s", update_info.get("latest_version"), dl_url)
+        if hasattr(self, "status_bar") and self.status_bar:
+            self.status_bar.showMessage(f"🔄 جاري تنزيل التحديث v{update_info.get('latest_version')} تلقائياً في الخلفية...", 15000)
+
+        self._silent_worker = SilentUpdateWorker(
+            checker=checker,
+            download_url=dl_url,
+            expected_sha256=update_info.get("sha256")
+        )
+        self._silent_worker.download_finished.connect(
+            lambda success, path, msg: self._on_silent_download_finished(checker, success, path, msg)
+        )
+        self._silent_worker.start()
+
+    def _on_silent_download_finished(self, checker: UpdateChecker, success: bool, pkg_path: Optional[Path], msg: str):
+        if not success or not pkg_path:
+            logger.warning("Silent update download failed: %s", msg)
+            return
+
+        logger.info("Silent update package downloaded to %s. Applying update automatically...", pkg_path)
+        if hasattr(self, "status_bar") and self.status_bar:
+            self.status_bar.showMessage("✅ تم تنزيل التحديث بنجاح، جاري إعادة التشغيل تلقائياً لتثبيته...", 5000)
+
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(1500, lambda: self._apply_and_restart(checker, pkg_path))
+
+    def _apply_and_restart(self, checker: UpdateChecker, pkg_path: Path):
+        ok = checker.apply_update_automatically(pkg_path)
+        if ok:
+            QApplication.instance().quit()
 
     def _init_telegram_bot(self):
         """Starts background Telegram bot and connects signals."""

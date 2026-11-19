@@ -96,7 +96,8 @@ class UpdateChecker:
         """
         downloads_dir = get_app_data_dir() / "updates"
         downloads_dir.mkdir(parents=True, exist_ok=True)
-        dest_file = downloads_dir / "update_package.zip"
+        ext = ".exe" if ".exe" in download_url.lower() else ".zip"
+        dest_file = downloads_dir / f"update_package{ext}"
 
         try:
             resp = requests.get(download_url, stream=True, timeout=60)
@@ -117,7 +118,7 @@ class UpdateChecker:
                     if progress_callback:
                         progress_callback(downloaded, total_bytes)
 
-            # Check SHA-256
+            # Check SHA-256 if provided
             computed_hash = hasher.hexdigest().lower()
             if expected_sha256 and computed_hash != expected_sha256.lower():
                 dest_file.unlink(missing_ok=True)
@@ -129,6 +130,24 @@ class UpdateChecker:
             logger.error("Error downloading update: %s", e)
             dest_file.unlink(missing_ok=True)
             return False, None, f"حدث خطأ أثناء تحميل التحديث: {str(e)}"
+
+    def apply_update_automatically(self, package_path: Path) -> bool:
+        """
+        Executes completely silent background update without user intervention:
+        - If installer .exe: launches Inno Setup with /VERYSILENT /SUPPRESSMSGBOXES.
+        - If zip archive: launches standalone updater.py.
+        """
+        if package_path.suffix.lower() == ".exe":
+            try:
+                DETACHED = 0x00000008 | 0x00000200 if sys.platform == "win32" else 0
+                cmd = [str(package_path), "/VERYSILENT", "/SUPPRESSMSGBOXES"]
+                subprocess.Popen(cmd, creationflags=DETACHED, close_fds=True)
+                logger.info("Launched silent installer successfully: %s", cmd)
+                return True
+            except Exception as e:
+                logger.error("Failed launching silent installer: %s", e)
+                return False
+        return self.launch_standalone_updater(package_path)
 
     def launch_standalone_updater(self, package_path: Path) -> bool:
         """
