@@ -660,6 +660,9 @@ class MainWindow(QMainWindow):
         self._update_license_ui()
         from PyQt6.QtCore import QTimer
         QTimer.singleShot(2500, self._check_updates_and_heartbeat)
+        self._periodic_update_timer = QTimer(self)
+        self._periodic_update_timer.timeout.connect(self._check_updates_and_heartbeat)
+        self._periodic_update_timer.start(1000 * 60 * 60)
 
     def _update_license_ui(self):
         """Refreshes status pill, read-only banner, and window title based on license state."""
@@ -770,7 +773,7 @@ class MainWindow(QMainWindow):
         self.license_status = self.lic_client.get_license_status()
         self._update_license_ui()
 
-    def _check_updates_and_heartbeat(self):
+    def _check_updates_and_heartbeat(self, manual: bool = False):
         """Asynchronously validates license heartbeat and checks for software releases."""
         try:
             # 1. Heartbeat sync
@@ -784,8 +787,12 @@ class MainWindow(QMainWindow):
             if has_update and update_info:
                 up_dlg = UpdateDialog(update_info=update_info, parent=self, checker=checker)
                 up_dlg.exec()
+            elif manual:
+                QMessageBox.information(self, "فحص التحديثات", "🎉 أنت تستخدم أحدث إصدار متوفر بالفعل!")
         except Exception as e:
             logger.debug("Background update/heartbeat exception: %s", e)
+            if manual:
+                QMessageBox.warning(self, "فحص التحديثات", f"تعذر التحقق من التحديثات:\n{e}")
 
     def _init_telegram_bot(self):
         """Starts background Telegram bot and connects signals."""
