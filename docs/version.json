@@ -1,8 +1,8 @@
 {
-  "latest_version": "4.7.2",
+  "latest_version": "4.7.3",
   "is_mandatory": false,
-  "download_url": "https://media.githubusercontent.com/media/Ahmedgad5on/phone-repair-erp/main/docs/downloads/ThermalLabPro_Setup_v4.7.2.exe",
-  "release_notes": "تحديث جديد يتضمن تحسينات عامة في الأداء، واستقرار قراءة الهواتف، ودعم ميزات التراخيص الحديثة.",
-  "sha256": "04145cc3f8ec85c1b813f516fe9f77541ab71008346ae1959918dfa4e6d7c04f",
-  "published_at": "2026-11-19"
+  "download_url": "https://media.githubusercontent.com/media/Ahmedgad5on/phone-repair-erp/main/docs/downloads/ThermalLabPro_Setup_v4.7.3.exe",
+  "release_notes": "تحديث جديد v4.7.3: إضافة زر ورابط استخراج Chat ID (@tg_raw_data_bot) في كافة أقسام البرنامج، تحسينات الاستقرار ومزامنة السيرفر السحابي والديسكتوب.",
+  "sha256": "3fbbc0cc6a8c4f38ba07fd3b38b1b67274f585e9fbc2d0311838a5002b2be68a",
+  "published_at": "2026-11-20"
 }

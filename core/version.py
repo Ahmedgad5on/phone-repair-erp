@@ -18,11 +18,11 @@ logger = logging.getLogger(__name__)
 # ==============================================================================
 VERSION_MAJOR = 4
 VERSION_MINOR = 7
-VERSION_PATCH = 2
+VERSION_PATCH = 3
 
 VERSION_TUPLE = (VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH)
 APP_VERSION = f"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_PATCH}"
-BUILD_DATE = "2026-11-19"
+BUILD_DATE = "2026-11-20"
 BUILD_CODENAME = "Offline-First Enterprise"
 
 APP_NAME = "ThermalLabPro Commercial ERP"
@@ -32,6 +32,15 @@ APP_SUBTITLE = "Mobile Trading ERP & 203 DPI Thermal CAD"
 # Release Changelog & Update History
 # ==============================================================================
 RELEASE_HISTORY: List[Dict[str, Any]] = [
+    {
+        "version": "4.7.3",
+        "date": "2026-11-20",
+        "codename": "Titanium Enterprise",
+        "title": "تحديث جديد لنظام ThermalLabPro",
+        "changes": [
+            "تحديث جديد v4.7.3: إضافة زر ورابط استخراج Chat ID (@tg_raw_data_bot) في كافة أقسام البرنامج، تحسينات الاستقرار ومزامنة السيرفر السحابي والديسكتوب."
+        ]
+    },
     {
         "version": "4.7.2",
         "date": "2026-11-19",
@@ -188,7 +197,7 @@ def bump_version(level: str = "patch", notes: Optional[List[str]] = None, codena
         content = re.sub(r'VERSION_MAJOR\s*=\s*\d+', f'VERSION_MAJOR = {new_major}', content)
         content = re.sub(r'VERSION_MINOR\s*=\s*\d+', f'VERSION_MINOR = {new_minor}', content)
         content = re.sub(r'VERSION_PATCH\s*=\s*\d+', f'VERSION_PATCH = {new_patch}', content)
-        content = re.sub(r'BUILD_DATE\s*=\s*"[^"]+"', f'BUILD_DATE = "2026-11-19"', content)
+        content = re.sub(r'BUILD_DATE\s*=\s*"[^"]+"', f'BUILD_DATE = "2026-11-20"', content)
         if codename:
             content = re.sub(r'BUILD_CODENAME\s*=\s*"[^"]+"', f'BUILD_CODENAME = "{codename}"', content)
 
