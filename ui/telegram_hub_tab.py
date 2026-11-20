@@ -106,7 +106,7 @@ class AddDeviceDialog(QDialog):
         super().__init__(parent)
         self.db = db
         self.setWindowTitle("إضافة هاتف جديد")
-        self.setFixedWidth(400)
+        self.setFixedWidth(460)
         self.setStyleSheet("""
             QDialog { background-color: #14141E; color: #F4F4F6; border: 1px solid #282838; border-radius: 10px; }
             QLabel { color: #A1A1AA; font-size: 12px; }
@@ -134,9 +134,33 @@ class AddDeviceDialog(QDialog):
         grid.addWidget(self.txt_name, 0, 1)
 
         grid.addWidget(QLabel("Chat ID:"), 1, 0)
+        cid_box = QHBoxLayout()
+        cid_box.setSpacing(6)
         self.txt_chat_id = QLineEdit()
-        self.txt_chat_id.setPlaceholderText("أرقام فقط")
-        grid.addWidget(self.txt_chat_id, 1, 1)
+        self.txt_chat_id.setPlaceholderText("أرقام فقط (مثال: 1065573291)")
+        cid_box.addWidget(self.txt_chat_id, 1)
+
+        btn_get_id = QPushButton("🆔 استخراج ID")
+        btn_get_id.setFixedHeight(32)
+        btn_get_id.setToolTip("اضغط لفتح بوت @tg_raw_data_bot على تيليجرام لمعرفة رقم الـ Chat ID")
+        btn_get_id.setStyleSheet("""
+            QPushButton {
+                background-color: #1E293B;
+                color: #38BDF8;
+                font-weight: bold;
+                border: 1px solid #0284C7;
+                border-radius: 6px;
+                padding: 0 10px;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #0284C7;
+                color: #FFFFFF;
+            }
+        """)
+        btn_get_id.clicked.connect(lambda: self._open_url("https://t.me/tg_raw_data_bot"))
+        cid_box.addWidget(btn_get_id)
+        grid.addLayout(cid_box, 1, 1)
 
         grid.addWidget(QLabel("الرتبة:"), 2, 0)
         self.combo_role = QComboBox()
@@ -150,6 +174,10 @@ class AddDeviceDialog(QDialog):
         grid.addWidget(self.txt_phone, 3, 1)
 
         layout.addLayout(grid)
+
+        lbl_hint = QLabel("💡 لمعرفة الـ Chat ID: اضغط على 'استخراج ID' لفتح بوت @tg_raw_data_bot واضغط Start.")
+        lbl_hint.setStyleSheet("color: #94A3B8; font-size: 11px;")
+        layout.addWidget(lbl_hint)
 
         btn_box = QHBoxLayout()
         btn_box.setSpacing(8)
@@ -167,6 +195,13 @@ class AddDeviceDialog(QDialog):
         btn_box.addWidget(btn_cancel)
 
         layout.addLayout(btn_box)
+
+    def _open_url(self, url: str):
+        import webbrowser
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass
 
     def _save(self):
         name = self.txt_name.text().strip()
@@ -662,6 +697,14 @@ class TelegramHubTab(QWidget):
         btn_copy_cmd.setStyleSheet("background-color: #262638; color: #F4F4F6; border-radius: 4px; font-size: 11px;")
         btn_copy_cmd.clicked.connect(lambda: self._copy_to_clipboard(self.lbl_owner_cmd.text()))
         cc_lay.addWidget(btn_copy_cmd)
+
+        btn_card_id = QPushButton("🆔 استخراج ID (@tg_raw_data_bot)")
+        btn_card_id.setFixedHeight(24)
+        btn_card_id.setStyleSheet("background-color: #1E293B; color: #38BDF8; border-radius: 4px; font-size: 11px;")
+        btn_card_id.setToolTip("اضغط لفتح بوت @tg_raw_data_bot لمعرفة رقم الـ Chat ID الخاص بك")
+        btn_card_id.clicked.connect(lambda: self._open_url("https://t.me/tg_raw_data_bot"))
+        cc_lay.addWidget(btn_card_id)
+
         s2_box.addWidget(code_card)
 
         # Owner Inputs
@@ -671,9 +714,33 @@ class TelegramHubTab(QWidget):
         s2_grid = QGridLayout()
         s2_grid.setSpacing(6)
         s2_grid.addWidget(QLabel("معرف شات المالك (Chat ID):"), 0, 0)
+        owner_cid_box = QHBoxLayout()
+        owner_cid_box.setSpacing(6)
         self.txt_owner_chat_id = QLineEdit()
         self.txt_owner_chat_id.setPlaceholderText("مثال: 123456789")
-        s2_grid.addWidget(self.txt_owner_chat_id, 0, 1)
+        owner_cid_box.addWidget(self.txt_owner_chat_id, 1)
+
+        btn_get_owner_cid = QPushButton("🆔 استخراج ID")
+        btn_get_owner_cid.setFixedHeight(30)
+        btn_get_owner_cid.setToolTip("اضغط لفتح بوت @tg_raw_data_bot على تيليجرام لمعرفة رقم الـ Chat ID الخاص بك")
+        btn_get_owner_cid.setStyleSheet("""
+            QPushButton {
+                background-color: #1E293B;
+                color: #38BDF8;
+                border: 1px solid #0284C7;
+                font-weight: bold;
+                border-radius: 5px;
+                padding: 0 10px;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #0284C7;
+                color: #FFFFFF;
+            }
+        """)
+        btn_get_owner_cid.clicked.connect(lambda: self._open_url("https://t.me/tg_raw_data_bot"))
+        owner_cid_box.addWidget(btn_get_owner_cid)
+        s2_grid.addLayout(owner_cid_box, 0, 1)
 
         s2_grid.addWidget(QLabel("رمز PIN المالك:"), 1, 0)
         self.txt_owner_pin = QLineEdit()
@@ -682,12 +749,36 @@ class TelegramHubTab(QWidget):
         s2_grid.addWidget(self.txt_owner_pin, 1, 1)
         s2_inputs.addLayout(s2_grid)
 
+        lbl_s2_hint = QLabel("💡 لمعرفة رقم المعرف (Chat ID): افتح بوت @tg_raw_data_bot واضغط Start لنسخ الرقم فوراً.")
+        lbl_s2_hint.setStyleSheet("font-size: 11px; color: #94A3B8;")
+        s2_inputs.addWidget(lbl_s2_hint)
+
         s2_btns = QHBoxLayout()
         btn_ping_owner = QPushButton("✉️ إرسال فحص لهاتف المالك")
         btn_ping_owner.setFixedHeight(30)
         btn_ping_owner.setStyleSheet("background-color: #1E293B; color: #38BDF8; font-weight: bold; border-radius: 5px; padding: 0 12px;")
         btn_ping_owner.clicked.connect(self._ping_owner_phone)
         s2_btns.addWidget(btn_ping_owner)
+
+        btn_open_id_bot = QPushButton("🆔 استخراج الـ Chat ID (@tg_raw_data_bot)")
+        btn_open_id_bot.setFixedHeight(30)
+        btn_open_id_bot.setStyleSheet("""
+            QPushButton {
+                background-color: #1E293B;
+                color: #38BDF8;
+                font-weight: bold;
+                border: 1px solid #0284C7;
+                border-radius: 5px;
+                padding: 0 12px;
+            }
+            QPushButton:hover {
+                background-color: #0284C7;
+                color: #FFFFFF;
+            }
+        """)
+        btn_open_id_bot.setToolTip("اضغط لفتح بوت @tg_raw_data_bot على تيليجرام واستخراج رقم الـ Chat ID فوراً")
+        btn_open_id_bot.clicked.connect(lambda: self._open_url("https://t.me/tg_raw_data_bot"))
+        s2_btns.addWidget(btn_open_id_bot)
 
         btn_save_owner = QPushButton("💾 حفظ")
         btn_save_owner.setFixedHeight(30)
@@ -732,6 +823,14 @@ class TelegramHubTab(QWidget):
         btn_copy_staff.setStyleSheet("background-color: #262638; color: #F4F4F6; border-radius: 4px; font-size: 11px;")
         btn_copy_staff.clicked.connect(lambda: self._copy_to_clipboard(self.lbl_sales_cmd.text()))
         scc_lay.addWidget(btn_copy_staff)
+
+        btn_card_staff_id = QPushButton("🆔 استخراج ID (@tg_raw_data_bot)")
+        btn_card_staff_id.setFixedHeight(24)
+        btn_card_staff_id.setStyleSheet("background-color: #1E293B; color: #38BDF8; border-radius: 4px; font-size: 11px;")
+        btn_card_staff_id.setToolTip("اضغط لفتح بوت @tg_raw_data_bot لمعرفة رقم الـ Chat ID للموظف")
+        btn_card_staff_id.clicked.connect(lambda: self._open_url("https://t.me/tg_raw_data_bot"))
+        scc_lay.addWidget(btn_card_staff_id)
+
         s3_box.addWidget(staff_code_card)
 
         # Staff Controls
@@ -758,6 +857,26 @@ class TelegramHubTab(QWidget):
         btn_add_device.setStyleSheet("background-color: #10B981; color: #000; font-weight: bold; border-radius: 5px; padding: 0 12px;")
         btn_add_device.clicked.connect(self._open_add_device_dialog)
         s3_btns.addWidget(btn_add_device)
+
+        btn_staff_get_id = QPushButton("🆔 استخراج Chat ID (@tg_raw_data_bot)")
+        btn_staff_get_id.setFixedHeight(30)
+        btn_staff_get_id.setStyleSheet("""
+            QPushButton {
+                background-color: #1E293B;
+                color: #38BDF8;
+                font-weight: bold;
+                border: 1px solid #0284C7;
+                border-radius: 5px;
+                padding: 0 12px;
+            }
+            QPushButton:hover {
+                background-color: #0284C7;
+                color: #FFFFFF;
+            }
+        """)
+        btn_staff_get_id.setToolTip("فتح بوت @tg_raw_data_bot على تيليجرام لمعرفة رقم الـ Chat ID للموظف")
+        btn_staff_get_id.clicked.connect(lambda: self._open_url("https://t.me/tg_raw_data_bot"))
+        s3_btns.addWidget(btn_staff_get_id)
 
         btn_view_devs = QPushButton("استعراض الأجهزة المتصلة ⬅️")
         btn_view_devs.setFixedHeight(30)

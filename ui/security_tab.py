@@ -152,9 +152,34 @@ class SecurityTab(QWidget):
         form_grid.addWidget(self.txt_bot_token, 6, 1)
 
         form_grid.addWidget(QLabel("Chat ID للمالك:"), 7, 0)
+        chat_id_layout = QHBoxLayout()
+        chat_id_layout.setSpacing(6)
         self.txt_owner_chat_id = QLineEdit()
-        self.txt_owner_chat_id.setPlaceholderText("أرسل /auth_owner للبوت للربط التلقائي")
-        form_grid.addWidget(self.txt_owner_chat_id, 7, 1)
+        self.txt_owner_chat_id.setPlaceholderText("أرسل /auth_owner للبوت للربط التلقائي أو أدخل الـ ID")
+        chat_id_layout.addWidget(self.txt_owner_chat_id, 1)
+
+        btn_cid_helper = QPushButton("🆔 استخراج ID (@tg_raw_data_bot)")
+        btn_cid_helper.setFixedHeight(28)
+        btn_cid_helper.setToolTip("اضغط لفتح بوت @tg_raw_data_bot على تيليجرام لمعرفة رقم الـ Chat ID")
+        btn_cid_helper.setStyleSheet("""
+            QPushButton {
+                background-color: #1A1A24;
+                color: #38BDF8;
+                border: 1px solid #0284C7;
+                border-radius: 4px;
+                font-size: 11px;
+                font-weight: bold;
+                padding: 0 8px;
+            }
+            QPushButton:hover {
+                background-color: #0284C7;
+                color: #FFFFFF;
+            }
+        """)
+        btn_cid_helper.clicked.connect(lambda: self._open_url("https://t.me/tg_raw_data_bot"))
+        chat_id_layout.addWidget(btn_cid_helper)
+
+        form_grid.addLayout(chat_id_layout, 7, 1)
 
         r_layout.addLayout(form_grid)
 
@@ -282,6 +307,13 @@ class SecurityTab(QWidget):
     def _open_about_dialog(self):
         dlg = AboutDialog(parent=self)
         dlg.exec()
+
+    def _open_url(self, url: str):
+        import webbrowser
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass
 
     def _create_instant_backup(self):
         backup_dir = Path(get_app_data_dir()) / "backups"

@@ -620,9 +620,12 @@ class TradingTelegramBot:
         if role == "Unauthorized":
             self.send_direct_message(
                 chat_id,
-                "🔒 <b>مرحباً بك في نظام ProLab Trading</b>\nيرجى تسجيل الدخول بكتابة:\n"
-                "• لصاحب المحل: <code>/auth_owner PIN</code>\n"
-                "• لموظف المبيعات: <code>/auth_sales PIN</code>"
+                f"🔒 <b>مرحباً بك في نظام ProLab Trading</b>\n"
+                f"معرف حسابك (Chat ID): <code>{chat_id}</code>\n\n"
+                f"يرجى تسجيل الدخول بكتابة:\n"
+                f"• لصاحب المحل: <code>/auth_owner PIN</code>\n"
+                f"• لموظف المبيعات: <code>/auth_sales PIN</code>\n\n"
+                f"💡 لمعرفة تفاصيل ومعرف حسابك: @tg_raw_data_bot"
             )
             return
 
