@@ -36,6 +36,7 @@ class TestDesktopUI(unittest.TestCase):
     def tearDown(self):
         if hasattr(self.window, "github_sync_worker") and self.window.github_sync_worker:
             self.window.github_sync_worker.stop()
+            self.window.github_sync_worker.wait(3000)
         if hasattr(self.window, "bot") and self.window.bot:
             self.window.bot.stop()
         if hasattr(self.window, "top_bar") and self.window.top_bar:
