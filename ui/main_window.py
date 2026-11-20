@@ -25,7 +25,7 @@ import time
 from typing import Optional, Dict, Any, List
 from PIL import Image, ImageDraw
 
-from PyQt6.QtCore import Qt, pyqtSlot, QKeyCombination, QThread, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, pyqtSlot, QKeyCombination, QThread, pyqtSignal, QTimer, QSize
 from PyQt6.QtGui import QKeySequence, QShortcut, QFont, QAction, QIcon
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -64,6 +64,7 @@ from ui.print_labels_canvas import PrintLabelsCanvas
 from ui.printer_panel import PrinterManagerPanel
 from ui.styles import load_theme
 from ui.about_dialog import AboutDialog
+from ui.icons import get_icon
 from core.version import get_version, get_window_title, get_full_version
 from core.licensing.client import get_licensing_client, LicensingClient
 from core.licensing.license_verifier import LicenseStatusInfo
@@ -151,13 +152,23 @@ class MainWindow(QMainWindow):
         brand_layout.setContentsMargins(10, 8, 10, 8)
         brand_layout.setSpacing(2)
 
-        lbl_logo_title = QLabel("👑 THERMALLABPRO")
+        brand_title_box = QHBoxLayout()
+        brand_title_box.setContentsMargins(0, 0, 0, 0)
+        brand_title_box.setSpacing(8)
+
+        lbl_crown = QLabel()
+        lbl_crown.setPixmap(get_icon("crown", color="#F59E0B", size=18).pixmap(18, 18))
+        brand_title_box.addWidget(lbl_crown)
+
+        lbl_logo_title = QLabel("THERMALLAB PRO")
         lbl_logo_title.setObjectName("title")
-        lbl_logo_title.setStyleSheet("font-size: 15px; font-weight: 800; color: #D4AF37;")
-        brand_layout.addWidget(lbl_logo_title)
+        lbl_logo_title.setStyleSheet("font-size: 14px; font-weight: 800; color: #F59E0B; letter-spacing: 0.5px;")
+        brand_title_box.addWidget(lbl_logo_title)
+        brand_title_box.addStretch()
+        brand_layout.addLayout(brand_title_box)
 
         lbl_logo_sub = QLabel(f"Commercial ERP Studio v{get_version()}")
-        lbl_logo_sub.setStyleSheet("font-size: 11px; color: #9CA3AF;")
+        lbl_logo_sub.setStyleSheet("font-size: 11px; color: #94A3B8;")
         brand_layout.addWidget(lbl_logo_sub)
         brand_card.setCursor(Qt.CursorShape.PointingHandCursor)
         brand_card.mousePressEvent = lambda e: self._show_about_dialog()
@@ -172,13 +183,13 @@ class MainWindow(QMainWindow):
         telemetry_layout.setContentsMargins(10, 8, 10, 8)
         telemetry_layout.setSpacing(6)
 
-        self.lbl_device_status = QLabel("📱 في انتظار توصيل هاتف...")
-        self.lbl_device_status.setStyleSheet("font-size: 12px; font-weight: bold; color: #9CA3AF;")
+        self.lbl_device_status = QLabel("في انتظار توصيل هاتف...")
+        self.lbl_device_status.setStyleSheet("font-size: 12px; font-weight: bold; color: #94A3B8;")
         self.lbl_device_status.setWordWrap(True)
         telemetry_layout.addWidget(self.lbl_device_status)
 
         self.lbl_device_details = QLabel("USB Auto-Detect | 203 DPI")
-        self.lbl_device_details.setStyleSheet("font-size: 10px; color: #6B7280;")
+        self.lbl_device_details.setStyleSheet("font-size: 10px; color: #64748B;")
         telemetry_layout.addWidget(self.lbl_device_details)
 
         # Action Buttons in Side-by-Side Row
@@ -186,14 +197,16 @@ class MainWindow(QMainWindow):
         btn_box.setContentsMargins(0, 4, 0, 0)
         btn_box.setSpacing(6)
 
-        self.btn_fast_adb = QPushButton("⚡ تفعيل ADB")
+        self.btn_fast_adb = QPushButton("تفعيل ADB")
+        self.btn_fast_adb.setIcon(get_icon("zap", color="#08090E", size=14))
         self.btn_fast_adb.setFixedHeight(30)
         self.btn_fast_adb.setToolTip("إرشادات وتفعيل وضع نقل البيانات وتصحيح الأخطاء لهاتفك")
         self.btn_fast_adb.setProperty("class", "primary")
         self.btn_fast_adb.clicked.connect(self._open_fast_adb_dialog)
         btn_box.addWidget(self.btn_fast_adb)
 
-        self.btn_reread_usb = QPushButton("🔄 فحص (F1)")
+        self.btn_reread_usb = QPushButton("فحص (F1)")
+        self.btn_reread_usb.setIcon(get_icon("refresh", color="#94A3B8", size=14))
         self.btn_reread_usb.setFixedHeight(30)
         self.btn_reread_usb.setProperty("class", "secondary")
         self.btn_reread_usb.clicked.connect(self._on_f1_reread)
@@ -204,7 +217,7 @@ class MainWindow(QMainWindow):
 
         # Navigation Section Separator
         lbl_nav_hdr = QLabel("قوائم ووظائف النظام")
-        lbl_nav_hdr.setStyleSheet("color: #6B7280; font-size: 10px; font-weight: bold; margin-top: 2px;")
+        lbl_nav_hdr.setStyleSheet("color: #64748B; font-size: 10px; font-weight: bold; margin-top: 2px;")
         sidebar_layout.addWidget(lbl_nav_hdr)
 
         # Nav Buttons in Smooth Scroll Container
@@ -214,8 +227,8 @@ class MainWindow(QMainWindow):
         scroll_nav.setStyleSheet("""
             QScrollArea { background: transparent; border: none; }
             QScrollBar:vertical { width: 4px; background: transparent; }
-            QScrollBar::handle:vertical { background: #28283C; border-radius: 2px; }
-            QScrollBar::handle:vertical:hover { background: #D4AF37; }
+            QScrollBar::handle:vertical { background: #1D2333; border-radius: 2px; }
+            QScrollBar::handle:vertical:hover { background: #F59E0B; }
         """)
 
         nav_container = QWidget()
@@ -228,26 +241,28 @@ class MainWindow(QMainWindow):
         self.nav_button_group.setExclusive(True)
 
         nav_items = [
-            ("📱 إدخال هاتف وطباعة (F1)", 0),
-            ("📦 إدارة المخزن الشاملة", 1),
-            ("🛒 نقطة البيع والصناديق (F2)", 2),
-            ("🔄 الاستبدال الفوري (F3)", 3),
-            ("🤝 حسابات التجار والميمو (F4)", 4),
-            ("📑 مركز التقارير والطباعة", 5),
-            ("📊 التحليلات ورادار الركود", 6),
-            ("🔍 الجرد السريع (F5)", 7),
-            ("🏷️ استوديو الملصقات CAD", 8),
-            ("🤖 ربط بوت تيليجرام", 9),
-            ("🛡️ الأمان والإعدادات", 10),
+            ("إدخال هاتف وطباعة (F1)", "device_mobile", 0),
+            ("إدارة المخزن الشاملة", "package", 1),
+            ("نقطة البيع والصناديق (F2)", "pos", 2),
+            ("الاستبدال الفوري (F3)", "trade_in", 3),
+            ("حسابات التجار والميمو (F4)", "traders", 4),
+            ("مركز التقارير والطباعة", "reports", 5),
+            ("التحليلات ورادار الركود", "analytics", 6),
+            ("الجرد السريع (F5)", "audit", 7),
+            ("استوديو الملصقات CAD", "designer", 8),
+            ("ربط بوت تيليجرام", "telegram", 9),
+            ("الأمان والإعدادات", "security", 10),
         ]
 
         self.nav_buttons: List[QPushButton] = []
-        for text, idx in nav_items:
+        for text, icon_name, idx in nav_items:
             btn = QPushButton(text)
             btn.setProperty("class", "nav-btn")
             btn.setCheckable(True)
             btn.setFixedHeight(34)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setIcon(get_icon(icon_name, color="#94A3B8", active_color="#F59E0B", size=17))
+            btn.setIconSize(QSize(17, 17))
             self.nav_button_group.addButton(btn, idx)
             nav_lay.addWidget(btn)
             self.nav_buttons.append(btn)
@@ -269,56 +284,81 @@ class MainWindow(QMainWindow):
         b_layout.setContentsMargins(8, 8, 8, 8)
         b_layout.setSpacing(6)
 
-        self.btn_master_print = QPushButton("🖨️ طباعة الملصق (Ctrl+P)")
+        self.btn_master_print = QPushButton("طباعة الملصق (Ctrl+P)")
         self.btn_master_print.setFixedHeight(36)
+        self.btn_master_print.setIcon(get_icon("printer", color="#08090E", size=16))
+        self.btn_master_print.setIconSize(QSize(16, 16))
         self.btn_master_print.setStyleSheet("""
             QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #D4AF37, stop:1 #E5C158);
-                color: #0D0D11;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #F59E0B, stop:1 #D97706);
+                color: #08090E;
                 font-weight: 800;
                 font-size: 12px;
                 border-radius: 5px;
-                border: none;
+                border: 1px solid #F59E0B;
             }
             QPushButton:hover {
-                background: #F5D77F;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #FBBF24, stop:1 #F59E0B);
+                color: #000000;
             }
         """)
         self.btn_master_print.clicked.connect(lambda: self._execute_print_active_label())
         b_layout.addWidget(self.btn_master_print)
 
-        self.btn_role_switch = QPushButton("👑 صاحب المحل (Owner)")
+        self.btn_role_switch = QPushButton("صاحب المحل (Owner)")
         self.btn_role_switch.setFixedHeight(30)
+        self.btn_role_switch.setIcon(get_icon("crown", color="#F59E0B", size=14))
+        self.btn_role_switch.setIconSize(QSize(14, 14))
         self.btn_role_switch.setStyleSheet("""
             QPushButton {
-                background-color: #1A1A24;
-                color: #D4AF37;
-                border: 1px solid #D4AF37;
+                background-color: #151924;
+                color: #F59E0B;
+                border: 1px solid #F59E0B;
                 border-radius: 4px;
                 font-size: 11px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #2D2D3E;
+                background-color: #1B2030;
             }
         """)
         self.btn_role_switch.clicked.connect(self._toggle_role_interactive)
         b_layout.addWidget(self.btn_role_switch)
 
-        self.btn_customer_account = QPushButton("👤 تسجيل الدخول / حساب جديد")
+        self.btn_customer_account = QPushButton("تسجيل الدخول / حساب جديد")
         self.btn_customer_account.setFixedHeight(28)
+        self.btn_customer_account.setIcon(get_icon("user", color="#94A3B8", size=14))
+        self.btn_customer_account.setIconSize(QSize(14, 14))
         self.btn_customer_account.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_customer_account.clicked.connect(self._open_customer_account_dialog)
         b_layout.addWidget(self.btn_customer_account)
 
-        self.btn_license_status = QPushButton("🛡️ فحص الترخيص...")
+        self.btn_license_status = QPushButton("فحص حالة الترخيص...")
         self.btn_license_status.setFixedHeight(28)
+        self.btn_license_status.setIcon(get_icon("shield", color="#38BDF8", size=14))
+        self.btn_license_status.setIconSize(QSize(14, 14))
         self.btn_license_status.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_license_status.setStyleSheet("""
+            QPushButton {
+                background-color: #0F172A;
+                color: #38BDF8;
+                border: 1px solid #0284C7;
+                border-radius: 4px;
+                font-size: 11px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1E293B;
+                border-color: #38BDF8;
+            }
+        """)
         self.btn_license_status.clicked.connect(self._open_license_dialog)
         b_layout.addWidget(self.btn_license_status)
 
-        self.btn_license_manager = QPushButton("👑 لوحة إدارة التراخيص والعملاء")
+        self.btn_license_manager = QPushButton("لوحة إدارة التراخيص والعملاء")
         self.btn_license_manager.setFixedHeight(30)
+        self.btn_license_manager.setIcon(get_icon("crown", color="#FEF3C7", size=14))
+        self.btn_license_manager.setIconSize(QSize(14, 14))
         self.btn_license_manager.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_license_manager.setStyleSheet("""
             QPushButton {
@@ -338,12 +378,14 @@ class MainWindow(QMainWindow):
         self.btn_license_manager.clicked.connect(self._open_license_manager_studio)
         b_layout.addWidget(self.btn_license_manager)
 
-        self.btn_github_sync = QPushButton("🔄 مزامنة GitHub (لحظية)")
+        self.btn_github_sync = QPushButton("مزامنة السحابة (GitHub)")
         self.btn_github_sync.setFixedHeight(28)
+        self.btn_github_sync.setIcon(get_icon("sync", color="#60A5FA", size=14))
+        self.btn_github_sync.setIconSize(QSize(14, 14))
         self.btn_github_sync.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_github_sync.setStyleSheet("""
             QPushButton {
-                background-color: #121A28;
+                background-color: #0F172A;
                 color: #60A5FA;
                 border: 1px solid #2563EB;
                 border-radius: 4px;
@@ -359,25 +401,28 @@ class MainWindow(QMainWindow):
         self.btn_github_sync.clicked.connect(self._manual_github_sync)
         b_layout.addWidget(self.btn_github_sync)
 
-        self.btn_version_about = QPushButton(f"ℹ️ الإصدار {get_full_version()}")
+        self.btn_version_about = QPushButton(f"الإصدار {get_full_version()}")
         self.btn_version_about.setFixedHeight(24)
+        self.btn_version_about.setIcon(get_icon("info", color="#94A3B8", size=12))
+        self.btn_version_about.setIconSize(QSize(12, 12))
         self.btn_version_about.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_version_about.setStyleSheet("""
             QPushButton {
                 background-color: transparent;
-                color: #9CA3AF;
-                border: 1px solid #282834;
+                color: #94A3B8;
+                border: 1px solid #1D2333;
                 border-radius: 4px;
                 font-size: 10px;
-                font-weight: bold;
+                font-weight: 600;
             }
             QPushButton:hover {
-                background-color: #1A1A24;
+                background-color: #151924;
                 color: #10B981;
                 border-color: #10B981;
             }
         """)
         self.btn_version_about.clicked.connect(self._show_about_dialog)
+        b_layout.addWidget(self.btn_version_about)
         b_layout.addWidget(self.btn_version_about)
 
         sidebar_layout.addWidget(bottom_box)
@@ -944,17 +989,17 @@ class MainWindow(QMainWindow):
                 self.tab_intake.refresh_recent_intakes()
 
             section_names = [
-                "📱 إدخال هاتف للمخزن وطباعة الملصق (F1)",
-                "📦 إدارة المخزن الشاملة والبحث السريع في الأجهزة",
-                "🛒 نقطة البيع والصناديق المالية (F2)",
-                "🔄 الاستبدال الفوري للأجهزة (F3)",
-                "🤝 حسابات التجار وبضاعة الأمانة (F4)",
-                "📑 مركز التقارير المالية والطباعة الشاملة",
-                "📊 التحليلات المتقدمة ورادار الركود",
-                "🔍 الجرد السريع بالباركود والكاميرا (F5)",
-                "🏷️ استوديو تصميم الملصقات CAD (203 DPI)",
-                "🤖 منصة ربط وإدارة بوت تيليجرام السحابي",
-                "🛡️ الأمان والإعدادات وسجل العمليات",
+                "إدخال هاتف للمخزن وطباعة الملصق (F1)",
+                "إدارة المخزن الشاملة والبحث السريع في الأجهزة",
+                "نقطة البيع والصناديق المالية (F2)",
+                "الاستبدال الفوري للأجهزة (F3)",
+                "حسابات التجار وبضاعة الأمانة (F4)",
+                "مركز التقارير المالية والطباعة الشاملة",
+                "التحليلات المتقدمة ورادار الركود",
+                "الجرد السريع بالباركود والكاميرا (F5)",
+                "استوديو تصميم الملصقات CAD (203 DPI)",
+                "منصة ربط وإدارة بوت تيليجرام السحابي",
+                "الأمان والإعدادات وسجل العمليات",
             ]
             if page_index < len(section_names):
                 self.top_bar.set_active_section(section_names[page_index])
@@ -1113,24 +1158,26 @@ class MainWindow(QMainWindow):
         self.top_bar.set_role(new_role)
 
         if new_role == "Owner":
-            self.btn_role_switch.setText("👑 صاحب المحل (Owner)")
+            self.btn_role_switch.setText("صاحب المحل (Owner)")
+            self.btn_role_switch.setIcon(get_icon("crown", color="#F59E0B", size=14))
             self.btn_role_switch.setStyleSheet("""
                 QPushButton {
-                    background-color: #1A1A24; color: #D4AF37;
-                    border: 1px solid #D4AF37; border-radius: 4px;
+                    background-color: #151924; color: #F59E0B;
+                    border: 1px solid #F59E0B; border-radius: 4px;
                     font-size: 11px; font-weight: bold;
                 }
-                QPushButton:hover { background-color: #2D2D3E; }
+                QPushButton:hover { background-color: #1B2030; }
             """)
         else:
-            self.btn_role_switch.setText("💼 موظف المبيعات (Staff)")
+            self.btn_role_switch.setText("موظف المبيعات (Staff)")
+            self.btn_role_switch.setIcon(get_icon("user", color="#94A3B8", size=14))
             self.btn_role_switch.setStyleSheet("""
                 QPushButton {
-                    background-color: #1A1A24; color: #9CA3AF;
-                    border: 1px solid #38384A; border-radius: 4px;
+                    background-color: #151924; color: #94A3B8;
+                    border: 1px solid #252D42; border-radius: 4px;
                     font-size: 11px; font-weight: bold;
                 }
-                QPushButton:hover { background-color: #2D2D3E; color: #F4F4F6; }
+                QPushButton:hover { background-color: #1B2030; color: #FFFFFF; }
             """)
 
         self.right_panel.set_status_message(f"Active Role: {new_role}", success=True)
@@ -1168,7 +1215,7 @@ class MainWindow(QMainWindow):
         ram_display = specs.ram or ""
         capacity_str = f"{storage_display} / {ram_display} RAM" if ram_display else storage_display
 
-        self.lbl_device_status.setText(f"✅ {model_display}")
+        self.lbl_device_status.setText(f"● {model_display}")
         self.lbl_device_status.setStyleSheet("font-size: 12px; font-weight: bold; color: #10B981;")
 
         is_apple = (
@@ -1188,8 +1235,8 @@ class MainWindow(QMainWindow):
     def _on_device_disconnected(self):
         self._current_specs = DeviceSpecs.empty()
         self.canvas.set_specs(self._current_specs, self._stock_number)
-        self.lbl_device_status.setText("📱 في انتظار توصيل هاتف...")
-        self.lbl_device_status.setStyleSheet("font-size: 12px; font-weight: bold; color: #9CA3AF;")
+        self.lbl_device_status.setText("● في انتظار توصيل هاتف...")
+        self.lbl_device_status.setStyleSheet("font-size: 12px; font-weight: bold; color: #94A3B8;")
         self.lbl_device_details.setText("USB Auto-Detect | 203 DPI")
         self.right_panel.set_status_message("Device disconnected", success=False)
 

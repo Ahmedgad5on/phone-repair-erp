@@ -21,6 +21,7 @@ from core.models import DeviceSpecs
 from core.device_detector import DeviceDetectorWorker, ConnectionState
 from core.driver_manager import check_driver_health, DriverDoctorDialog
 from core.paths import get_asset_path, get_binary_path
+from ui.icons import get_icon
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +48,8 @@ class StatusBarPanel(QFrame):
         self.setFixedHeight(48)
         self.setStyleSheet("""
             QFrame#PanelCard {
-                background-color: #16161D;
-                border-bottom: 1px solid #282834;
+                background-color: #0B0D14;
+                border-bottom: 1px solid #1D2333;
                 border-radius: 6px;
             }
         """)
@@ -74,13 +75,13 @@ class StatusBarPanel(QFrame):
         left_box = QHBoxLayout()
         left_box.setSpacing(8)
 
-        self.lbl_section = QLabel("📱 المخزن والإدخال الذكي")
-        self.lbl_section.setStyleSheet("color: #D4AF37; font-weight: 700; font-size: 13px;")
+        self.lbl_section = QLabel("المخزن والإدخال الذكي")
+        self.lbl_section.setStyleSheet("color: #F59E0B; font-weight: 700; font-size: 13px;")
         left_box.addWidget(self.lbl_section)
 
         sep1 = QFrame()
         sep1.setFrameShape(QFrame.Shape.VLine)
-        sep1.setStyleSheet("color: #282834; margin: 4px 0;")
+        sep1.setStyleSheet("color: #1D2333; margin: 4px 0;")
         left_box.addWidget(sep1)
 
         # Telemetry Pill
@@ -88,8 +89,8 @@ class StatusBarPanel(QFrame):
         center_pill.setObjectName("TelemetryPill")
         center_pill.setStyleSheet("""
             QFrame#TelemetryPill {
-                background-color: #121217;
-                border: 1px solid #282834;
+                background-color: #11141F;
+                border: 1px solid #1D2333;
                 border-radius: 4px;
                 padding: 1px 6px;
             }
@@ -99,29 +100,31 @@ class StatusBarPanel(QFrame):
         pill_layout.setSpacing(6)
 
         self.lbl_conn_dot = QLabel("●")
-        self.lbl_conn_dot.setStyleSheet("color: #EF4444; font-size: 12px;")
+        self.lbl_conn_dot.setStyleSheet("color: #F43F5E; font-size: 12px;")
         pill_layout.addWidget(self.lbl_conn_dot)
 
         self.lbl_conn_text = QLabel("في انتظار توصيل هاتف عبر USB...")
-        self.lbl_conn_text.setStyleSheet("color: #9CA3AF; font-size: 11px; font-weight: 600;")
+        self.lbl_conn_text.setStyleSheet("color: #94A3B8; font-size: 11px; font-weight: 600;")
         pill_layout.addWidget(self.lbl_conn_text)
 
-        self.btn_reread = QPushButton("↻ تحديث")
+        self.btn_reread = QPushButton("تحديث")
+        self.btn_reread.setIcon(get_icon("refresh", color="#F59E0B", size=13))
         self.btn_reread.setFixedHeight(24)
         self.btn_reread.setToolTip("إعادة قراءة بيانات الهاتف عبر USB (F1)")
         self.btn_reread.setStyleSheet("""
             QPushButton {
-                background-color: #1A1A24;
-                color: #D4AF37;
-                border: 1px solid #333344;
-                border-radius: 3px;
+                background-color: #151924;
+                color: #F59E0B;
+                border: 1px solid #252D42;
+                border-radius: 4px;
                 padding: 2px 8px;
                 font-size: 11px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #222230;
-                border-color: #D4AF37;
+                background-color: #1B2030;
+                border-color: #F59E0B;
+                color: #FBBF24;
             }
         """)
         self.btn_reread.clicked.connect(self._on_reread_clicked)
@@ -143,8 +146,8 @@ class StatusBarPanel(QFrame):
         printer_pill.setObjectName("PrinterPill")
         printer_pill.setStyleSheet("""
             QFrame#PrinterPill {
-                background-color: #121217;
-                border: 1px solid #282834;
+                background-color: #11141F;
+                border: 1px solid #1D2333;
                 border-radius: 4px;
                 padding: 1px 4px;
             }
@@ -153,8 +156,8 @@ class StatusBarPanel(QFrame):
         p_layout.setContentsMargins(4, 2, 4, 2)
         p_layout.setSpacing(4)
 
-        lbl_p_icon = QLabel("🖨️")
-        lbl_p_icon.setStyleSheet("font-size: 12px;")
+        lbl_p_icon = QLabel()
+        lbl_p_icon.setPixmap(get_icon("printer", color="#F59E0B", size=14).pixmap(14, 14))
         p_layout.addWidget(lbl_p_icon)
 
         self.combo_printer = QComboBox()
@@ -164,15 +167,15 @@ class StatusBarPanel(QFrame):
         self.combo_printer.setToolTip("اختيار طابعة الملصقات الحرارية النشطة")
         self.combo_printer.setStyleSheet("""
             QComboBox {
-                background-color: #1A1A24;
-                color: #D4AF37;
-                border: 1px solid #333344;
-                border-radius: 3px;
+                background-color: #151924;
+                color: #F59E0B;
+                border: 1px solid #252D42;
+                border-radius: 4px;
                 padding: 2px 6px;
                 font-weight: bold;
                 font-size: 11px;
             }
-            QComboBox:hover { border-color: #D4AF37; }
+            QComboBox:hover { border-color: #F59E0B; background-color: #1B2030; }
             QComboBox::drop-down { border: none; }
         """)
         self.combo_printer.currentTextChanged.connect(self._on_printer_changed)
@@ -180,17 +183,17 @@ class StatusBarPanel(QFrame):
         right_box.addWidget(printer_pill)
 
         # Auto-Print Toggle Switch
-        self.chk_autoprint = QCheckBox("⚡ طباعة فورية")
+        self.chk_autoprint = QCheckBox("طباعة فورية")
         self.chk_autoprint.setToolTip("طباعة تلقائية للملصق بمجرد توصيل الهاتف")
         self.chk_autoprint.setStyleSheet("""
             QCheckBox {
-                color: #F4F4F6;
+                color: #F1F5F9;
                 font-size: 11px;
                 font-weight: 600;
             }
             QCheckBox::indicator:checked {
-                background-color: #D4AF37;
-                border: 1px solid #E5C158;
+                background-color: #F59E0B;
+                border: 1px solid #FBBF24;
             }
         """)
         self.chk_autoprint.setChecked(False)
@@ -198,14 +201,15 @@ class StatusBarPanel(QFrame):
         right_box.addWidget(self.chk_autoprint)
 
         # Driver Doctor Badge Button
-        self.btn_driver_doctor = QPushButton("🩺 فحص التعريفات")
+        self.btn_driver_doctor = QPushButton("فحص التعريفات")
+        self.btn_driver_doctor.setIcon(get_icon("shield", color="#08090E", size=13))
         self.btn_driver_doctor.setFixedHeight(26)
         self.btn_driver_doctor.setToolTip("فحص وتثبيت تعريفات USB بنقرة واحدة (ADB, Apple, Samsung)")
         self.btn_driver_doctor.setStyleSheet("""
             QPushButton {
                 background-color: #10B981;
-                color: #0D0D11;
-                border: none;
+                color: #08090E;
+                border: 1px solid #059669;
                 border-radius: 4px;
                 padding: 3px 10px;
                 font-size: 11px;
@@ -213,6 +217,7 @@ class StatusBarPanel(QFrame):
             }
             QPushButton:hover {
                 background-color: #34D399;
+                border-color: #10B981;
             }
         """)
         self.btn_driver_doctor.clicked.connect(self._open_driver_doctor)
