@@ -1,8 +1,8 @@
 {
-  "latest_version": "4.7.3",
+  "latest_version": "4.7.4",
   "is_mandatory": false,
-  "download_url": "https://media.githubusercontent.com/media/Ahmedgad5on/phone-repair-erp/main/docs/downloads/ThermalLabPro_Setup_v4.7.3.exe",
-  "release_notes": "تحديث جديد v4.7.3: إضافة زر ورابط استخراج Chat ID (@tg_raw_data_bot) في كافة أقسام البرنامج، تحسينات الاستقرار ومزامنة السيرفر السحابي والديسكتوب.",
-  "sha256": "3fbbc0cc6a8c4f38ba07fd3b38b1b67274f585e9fbc2d0311838a5002b2be68a",
+  "download_url": "https://media.githubusercontent.com/media/Ahmedgad5on/phone-repair-erp/main/docs/downloads/ThermalLabPro_Setup_v4.7.4.exe",
+  "release_notes": "تحديث v4.7.4: تصميم واجهة جديد فائق الاحترافية بألوان Obsidian Titanium و Cyber-Gold، وتحديث شامل لكافة الأيقونات بنظام Vector SVG عالي الدقة، وتحديث روابط بوت التيليجرام ومزامنة السيرفر.",
+  "sha256": "92f3784c015184452736e74abd514e88d93b1112af3129c35b068133b6db3b88",
   "published_at": "2026-11-20"
 }
