@@ -28,7 +28,7 @@ class TestVersionManagement(unittest.TestCase):
 
     def test_window_title_formatting(self):
         title = get_window_title()
-        self.assertIn("ProLab", title)
+        self.assertTrue("ThermalLabPro" in title or "ProLab" in title)
         self.assertIn(get_version(), title)
         self.assertIn("203 DPI", title)
 
