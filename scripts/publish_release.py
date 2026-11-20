@@ -80,6 +80,13 @@ def update_installer_iss(new_ver: str):
 def compile_inno_setup(new_ver: str, rebuild_pyinstaller: bool = True) -> Path:
     if rebuild_pyinstaller:
         print("[*] Rebuilding PyInstaller standalone executable with latest Python code...")
+        # Terminate any running instances before building/copying
+        try:
+            subprocess.run(["taskkill", "/F", "/IM", "ThermalLabPro.exe"], capture_output=True)
+            time.sleep(1)
+        except Exception:
+            pass
+
         res_py = subprocess.run(["pyinstaller", "--noconfirm", "app.spec"], cwd=str(REPO_ROOT), capture_output=True, text=True)
         if res_py.returncode != 0:
             print(f"[ERROR] PyInstaller compilation failed:\n{res_py.stderr}")
@@ -90,7 +97,11 @@ def compile_inno_setup(new_ver: str, rebuild_pyinstaller: bool = True) -> Path:
             shutil.copy2(src_exe, REPO_ROOT / "dist_installer" / "ThermalLabPro.exe")
             desktop_exe = Path(os.environ.get("USERPROFILE", "")) / "Desktop" / "ThermalLabPro.exe"
             if desktop_exe.parent.exists():
-                shutil.copy2(src_exe, desktop_exe)
+                try:
+                    shutil.copy2(src_exe, desktop_exe)
+                    print(f"[✔] Updated desktop executable at: {desktop_exe}")
+                except Exception as e:
+                    print(f"[!] Warning updating desktop exe: {e}")
             print("[✔] PyInstaller build completed and copied to dist_installer/ThermalLabPro.exe")
 
     print(f"[*] Compiling Inno Setup package for v{new_ver}...")
@@ -112,6 +123,80 @@ def compile_inno_setup(new_ver: str, rebuild_pyinstaller: bool = True) -> Path:
             
     print(f"[✔] Compiled installer created: {out_file.name} ({out_file.stat().st_size / (1024*1024):.1f} MB)")
     return out_file
+
+
+def update_server_database(new_ver: str, installer_path: Path, notes: str):
+    import secrets
+    from datetime import datetime, timezone
+    from server.security import Ed25519LicensingEngine
+    import sqlite3
+
+    server_db_path = REPO_ROOT / "server_data" / "licensing.db"
+    if not server_db_path.exists():
+        print("[!] server_data/licensing.db not found, skipping local server DB update.")
+        return
+
+    sha256_hash = compute_sha256(installer_path)
+    size_bytes = installer_path.stat().st_size
+    filename = installer_path.name
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    manifest_data = {
+        "version": new_ver,
+        "channel": "stable",
+        "package_sha256": sha256_hash,
+        "published_at_utc": now_iso
+    }
+    try:
+        manifest_signature = Ed25519LicensingEngine.sign_payload(manifest_data)
+    except Exception as e:
+        print(f"[!] Warning: failed to sign with Ed25519: {e}")
+        manifest_signature = ""
+
+    # Copy installer to server_data/releases/
+    server_releases_dir = REPO_ROOT / "server_data" / "releases"
+    server_releases_dir.mkdir(parents=True, exist_ok=True)
+    target_server_pkg = server_releases_dir / filename
+    try:
+        shutil.copy2(installer_path, target_server_pkg)
+    except Exception as e:
+        print(f"[!] Warning copying installer to server_data/releases: {e}")
+
+    conn = sqlite3.connect(str(server_db_path))
+    cur = conn.cursor()
+    release_id = f"REL-{secrets.token_hex(4).upper()}"
+    cur.execute("""
+        INSERT OR REPLACE INTO server_software_releases (
+            release_id, version, channel, min_supported_version, is_mandatory,
+            is_active, package_filename, package_size_bytes, package_sha256,
+            manifest_signature, release_notes, created_at, published_at
+        ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?);
+    """, (
+        release_id, new_ver, "stable", "4.0.0",
+        0, filename, size_bytes, sha256_hash,
+        manifest_signature, notes, now_iso, now_iso
+    ))
+
+    cur.execute("""
+        UPDATE server_system_settings
+        SET value = ?, updated_at = ?
+        WHERE key = 'latest_stable_version';
+    """, (new_ver, now_iso))
+
+    conn.commit()
+    conn.close()
+    print(f"[✔] Updated server_data/licensing.db: release v{new_ver} registered & latest_stable_version updated.")
+
+
+def relaunch_desktop_app():
+    desktop_exe = Path(os.environ.get("USERPROFILE", "")) / "Desktop" / "ThermalLabPro.exe"
+    if desktop_exe.exists():
+        print(f"[*] Relaunching updated desktop app from {desktop_exe}...")
+        try:
+            subprocess.Popen([str(desktop_exe)], cwd=str(desktop_exe.parent))
+            print("[✔] Desktop application launched successfully!")
+        except Exception as e:
+            print(f"[!] Warning launching desktop app: {e}")
 
 
 def update_website_and_manifest(new_ver: str, installer_path: Path, notes: str):
@@ -210,8 +295,14 @@ def main():
     # Step 3: Update website & manifest
     update_website_and_manifest(new_ver, installer_path, notes)
 
-    # Step 4: Deploy to GitHub & GitHub Pages
+    # Step 4: Update central licensing server database
+    update_server_database(new_ver, installer_path, notes)
+
+    # Step 5: Deploy to GitHub & GitHub Pages
     deploy_to_cloud(new_ver)
+
+    # Step 6: Relaunch updated desktop application
+    relaunch_desktop_app()
 
 
 if __name__ == "__main__":
