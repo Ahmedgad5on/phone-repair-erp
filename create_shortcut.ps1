@@ -38,6 +38,6 @@ if (Test-Path $desktopPath) {
     $desktopShortcut = $ws.CreateShortcut("$desktopPath\ThermalLabPro.lnk")
     $desktopShortcut.TargetPath = "$desktopPath\ThermalLabPro.exe"
     $desktopShortcut.IconLocation = "$installerPath\app_icon.ico"
-    $desktopShortcut.WorkingDirectory = $desktopPath
+    $desktopShortcut.WorkingDirectory = "C:\Users\Eng_Ahmed\Desktop\label"
     $desktopShortcut.Save()
 }
