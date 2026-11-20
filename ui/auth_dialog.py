@@ -581,6 +581,7 @@ class AuthDialog(QDialog):
                 "password": pwd,
                 "confirm_password": pwd2,
                 "city": city,
+                "device_id": self.client.device_id,
                 "accept_terms": True
             }
             if otp:
@@ -604,20 +605,33 @@ class AuthDialog(QDialog):
             registered_phone = (data or {}).get("phone_number", phone)
 
             # Auto-login newly registered account so session is active
-            l_ok, l_msg, l_data = self.client.login(uname, pwd)
-            if l_ok and l_data:
-                self.authenticated = True
-                cust = l_data.get("customer") or self.client._customer_data or {}
-                self.customer_data = cust
-                if self.chk_stay_logged_in.isChecked():
-                    self.client.save_session(l_data)
-            else:
-                self.authenticated = True
+            self.authenticated = True
+            cust = (data or {}).get("customer") or self.client._customer_data or {}
+            if not cust:
+                cust = {
+                    "customer_id": cust_id,
+                    "username": uname,
+                    "full_name": name,
+                    "shop_name": shop,
+                    "phone_number": registered_phone,
+                    "city": city,
+                    "role": "owner",
+                    "account_status": "ACTIVE"
+                }
+            self.customer_data = cust
+            if self.chk_stay_logged_in.isChecked():
+                self.client.save_session({
+                    "access_token": self.client._auth_token or "offline_session",
+                    "customer": cust,
+                    "stay_logged_in": True
+                })
 
             # If user provided a license key or one was auto-activated
             if lic or (data and data.get("license_key")):
                 active_key = lic or data.get("license_key")
-                act_ok, act_msg, _ = self.client.activate_online(cust_id, active_key)
+                act_ok, act_msg = self.client.import_offline_license(active_key)
+                if not act_ok:
+                    act_ok, act_msg, _ = self.client.activate_online(cust_id, active_key)
                 if act_ok:
                     self.authenticated = True
                     QMessageBox.information(
@@ -627,8 +641,6 @@ class AuthDialog(QDialog):
                     )
                     self.accept()
                     return
-                else:
-                    QMessageBox.warning(self, "تم التسجيل وتأخر التفعيل", f"تم إنشاء الحساب بنجاح، ولكن تعذر تفعيل المفتاح تلقائياً:\n{act_msg}")
 
             # Prompt user with actionable post-registration options
             self._prompt_post_registration_action(name, cust_id, registered_phone, uname)
@@ -723,7 +735,19 @@ class AuthDialog(QDialog):
             try:
                 import webbrowser
                 from urllib.parse import quote
-                msg_text = f"مرحباً م/ أحمد جادالله،\nقمت بتسجيل حساب جديد في ThermalLabPro ERP باسم {name} ورقم هاتف {phone} وكود {cust_id}.\nمعرف جهازي:\n{self.client.device_id}\n\nأود تفعيل الاشتراك والحصول على مفتاح الترخيص."
+                shop = getattr(self, "txt_reg_shop", None)
+                shop_str = shop.text().strip() if shop else "ورشة الصيانة"
+                msg_text = (
+                    f"🔔 طلب تفعيل واشتراك جديد — ThermalLabPro\n"
+                    f"━━━━━━━━━━━━━━━━━━━━\n"
+                    f"• اسم العميل: {name}\n"
+                    f"• اسم المحل: {shop_str}\n"
+                    f"• رقم الهاتف: {phone}\n"
+                    f"• كود العميل: {cust_id}\n"
+                    f"• معرف الجهاز (Device ID):\n{self.client.device_id}\n"
+                    f"━━━━━━━━━━━━━━━━━━━━\n"
+                    f"أرجو مراجعة الطلب وتفعيل البرنامج."
+                )
                 url = f"https://wa.me/201061943367?text={quote(msg_text)}"
                 webbrowser.open(url)
             except Exception as e:
@@ -751,10 +775,8 @@ class AuthDialog(QDialog):
         from ui.license_dialog import LicenseDialog
         dlg = LicenseDialog(self, client=self.client)
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            st = self.client.get_license_status()
-            if st.is_valid:
-                self.authenticated = True
-                self.accept()
+            self.authenticated = True
+            self.accept()
 
     def _open_whatsapp_activation(self):
         try:

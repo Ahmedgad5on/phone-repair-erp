@@ -128,6 +128,15 @@ def register_customer(payload: RegisterRequest, req: Request):
             initial_status = "ACTIVE"
             activated_key = lic_clean
 
+    # If device_id was supplied, register device record
+    if getattr(payload, "device_id", None) and payload.device_id.strip():
+        cur.execute("""
+            INSERT OR REPLACE INTO server_devices (
+                device_id, customer_id, license_id, device_name,
+                os_info, app_version, status, registered_at_utc, last_validated_utc
+            ) VALUES (?, ?, ?, ?, 'Windows Workstation', '4.7.1', ?, ?, ?);
+        """, (payload.device_id.strip(), customer_id, activated_key or "", f"محطة {payload.shop_name.strip()}", initial_status, now_utc, now_utc))
+
     conn.commit()
 
     debug_otp = None

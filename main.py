@@ -83,18 +83,34 @@ def main():
     session = lic_client.load_session()
     lic_status = lic_client.get_license_status()
 
+    # If valid license/trial already exists, ensure local session is active
+    if lic_status.is_valid and not lic_client.is_logged_in():
+        cust_name = lic_status.customer_name or "العميل المرخص"
+        lic_client.save_session({
+            "access_token": "offline_session",
+            "customer": {
+                "customer_id": lic_status.customer_id or f"CUST-{lic_client.device_id[-6:]}",
+                "username": "admin",
+                "full_name": cust_name,
+                "shop_name": cust_name,
+                "role": "owner",
+                "account_status": "ACTIVE"
+            },
+            "stay_logged_in": True
+        })
+
     # If first launch / no active customer session, present AuthDialog
     if not lic_client.is_logged_in() and not os.environ.get("PROLAB_SKIP_AUTH_PROMPT"):
         auth_dlg = AuthDialog(client=lic_client)
         auth_dlg.exec()
 
-        # If user closed or rejected the login dialog without authenticating, exit immediately
-        if not auth_dlg.authenticated and not lic_client.is_logged_in():
-            logger.info("Authentication was closed or canceled by user. Exiting application.")
-            sys.exit(0)
-
         # Refresh license status after auth dialog
         lic_status = lic_client.get_license_status()
+
+        # If user closed or rejected the login dialog without authenticating
+        if not auth_dlg.authenticated and not lic_client.is_logged_in() and not lic_status.is_valid:
+            logger.info("Authentication was closed or canceled by user. Exiting application.")
+            sys.exit(0)
 
     # Initialize database manager
     db = DatabaseManager()

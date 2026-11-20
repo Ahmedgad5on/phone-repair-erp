@@ -16,6 +16,8 @@ from pathlib import Path
 from datetime import datetime, date
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 ISCC_PATH = Path(r"C:\Users\Eng_Ahmed\AppData\Local\Programs\Inno Setup 6\ISCC.exe")
 
 
@@ -75,7 +77,22 @@ def update_installer_iss(new_ver: str):
     print(f"[*] Updated installer.iss to v{new_ver}")
 
 
-def compile_inno_setup(new_ver: str) -> Path:
+def compile_inno_setup(new_ver: str, rebuild_pyinstaller: bool = True) -> Path:
+    if rebuild_pyinstaller:
+        print("[*] Rebuilding PyInstaller standalone executable with latest Python code...")
+        res_py = subprocess.run(["pyinstaller", "--noconfirm", "app.spec"], cwd=str(REPO_ROOT), capture_output=True, text=True)
+        if res_py.returncode != 0:
+            print(f"[ERROR] PyInstaller compilation failed:\n{res_py.stderr}")
+            sys.exit(1)
+        src_exe = REPO_ROOT / "dist" / "ThermalLabPro.exe"
+        if src_exe.exists():
+            (REPO_ROOT / "dist_installer").mkdir(exist_ok=True)
+            shutil.copy2(src_exe, REPO_ROOT / "dist_installer" / "ThermalLabPro.exe")
+            desktop_exe = Path(os.environ.get("USERPROFILE", "")) / "Desktop" / "ThermalLabPro.exe"
+            if desktop_exe.parent.exists():
+                shutil.copy2(src_exe, desktop_exe)
+            print("[✔] PyInstaller build completed and copied to dist_installer/ThermalLabPro.exe")
+
     print(f"[*] Compiling Inno Setup package for v{new_ver}...")
     if not ISCC_PATH.exists():
         raise FileNotFoundError(f"Inno Setup Compiler not found at {ISCC_PATH}")
@@ -87,7 +104,6 @@ def compile_inno_setup(new_ver: str) -> Path:
         
     out_file = REPO_ROOT / "dist_installer" / f"ThermalLabPro_Setup_v{new_ver}.exe"
     if not out_file.exists():
-        # Fallback to standard filename
         candidates = list((REPO_ROOT / "dist_installer").glob(f"*{new_ver}*.exe"))
         if candidates:
             out_file = candidates[0]

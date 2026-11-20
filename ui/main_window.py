@@ -18,13 +18,14 @@ Features:
 4. Sleek 48px Top Telemetry Bar with Breadcrumbs.
 """
 from datetime import datetime
+from pathlib import Path
 import logging
 import os
 import time
 from typing import Optional, Dict, Any, List
 from PIL import Image, ImageDraw
 
-from PyQt6.QtCore import Qt, pyqtSlot, QKeyCombination
+from PyQt6.QtCore import Qt, pyqtSlot, QKeyCombination, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QKeySequence, QShortcut, QFont, QAction, QIcon
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -315,6 +316,27 @@ class MainWindow(QMainWindow):
         self.btn_license_status.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_license_status.clicked.connect(self._open_license_dialog)
         b_layout.addWidget(self.btn_license_status)
+
+        self.btn_license_manager = QPushButton("👑 لوحة إدارة التراخيص والعملاء")
+        self.btn_license_manager.setFixedHeight(30)
+        self.btn_license_manager.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_license_manager.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #78350F, stop:1 #B45309);
+                color: #FEF3C7;
+                border: 1px solid #F59E0B;
+                border-radius: 4px;
+                font-size: 11px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: #D97706;
+                color: #FFFFFF;
+                border-color: #FCD34D;
+            }
+        """)
+        self.btn_license_manager.clicked.connect(self._open_license_manager_studio)
+        b_layout.addWidget(self.btn_license_manager)
 
         self.btn_github_sync = QPushButton("🔄 مزامنة GitHub (لحظية)")
         self.btn_github_sync.setFixedHeight(28)
@@ -789,6 +811,35 @@ class MainWindow(QMainWindow):
         dlg.exec()
         self.license_status = self.lic_client.get_license_status()
         self._update_license_ui()
+
+    def _open_license_manager_studio(self):
+        """Launches the License Manager Studio for customer activation and subscription control."""
+        try:
+            from license_manager.api_client import LicenseManagerAPIClient
+            from license_manager.main import LicenseManagerWindow, LoginDialog
+
+            client = LicenseManagerAPIClient("http://127.0.0.1:8000")
+            auto_ok, _ = client.login("superadmin", "ProLabAdmin2026!Secure")
+            if not auto_ok:
+                LoginDialog._launch_server_process()
+                auto_ok, _ = client.login("superadmin", "ProLabAdmin2026!Secure")
+
+            if auto_ok:
+                self._lic_mgr_win = LicenseManagerWindow(client)
+                self._lic_mgr_win.show()
+            else:
+                login = LoginDialog(client, parent=self)
+                if login.exec() == QDialog.DialogCode.Accepted:
+                    self._lic_mgr_win = LicenseManagerWindow(client)
+                    self._lic_mgr_win.show()
+        except Exception as e:
+            logger.error("Failed to launch License Manager Studio: %s", e)
+            import subprocess, sys
+            lm_path = Path(__file__).resolve().parent.parent / "license_manager" / "main.py"
+            if lm_path.exists():
+                subprocess.Popen([sys.executable, str(lm_path)])
+            else:
+                QMessageBox.critical(self, "خطأ", f"تعذر فتح استوديو إدارة التراخيص:\n{e}")
 
     def _check_updates_and_heartbeat(self, manual: bool = False):
         """Asynchronously validates license heartbeat and checks for software releases."""

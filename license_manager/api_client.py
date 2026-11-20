@@ -88,20 +88,85 @@ class LicenseManagerAPIClient:
             logger.error(f"get_customer_details error: {e}")
             return None
 
-    def approve_customer(self, customer_id: str, action: str, plan_id: Optional[str] = None, notes: str = "") -> Tuple[bool, str, Optional[str]]:
+    def approve_customer(
+        self,
+        customer_id: str,
+        action: str,
+        plan_id: Optional[str] = None,
+        notes: str = "",
+        custom_days: Optional[int] = None,
+        device_id: Optional[str] = None
+    ) -> Tuple[bool, str, Optional[str]]:
         try:
             url = f"{self.base_url}/api/v1/admin/customers/approval"
             payload = {
                 "customer_id": customer_id,
                 "action": action.upper(),
                 "plan_id": plan_id,
-                "notes": notes
+                "notes": notes,
+                "custom_days": custom_days,
+                "device_id": device_id
             }
             resp = requests.post(url, json=payload, headers=self._headers(), timeout=15.0)
             if resp.status_code == 200:
                 data = resp.json()
                 return True, data.get("message", "تم بنجاح"), data.get("issued_license_key")
             err = resp.json().get("detail", "فشل تنفيذ العملية.")
+            return False, str(err), None
+        except Exception as e:
+            return False, f"خطأ في الاتصال: {e}", None
+
+    def renew_customer(
+        self,
+        customer_id: str,
+        plan_id: str = "annual_pro",
+        custom_days: Optional[int] = None,
+        notes: str = ""
+    ) -> Tuple[bool, str, Optional[str], Optional[str]]:
+        try:
+            url = f"{self.base_url}/api/v1/admin/customers/renew"
+            payload = {
+                "customer_id": customer_id,
+                "plan_id": plan_id,
+                "custom_days": custom_days,
+                "notes": notes
+            }
+            resp = requests.post(url, json=payload, headers=self._headers(), timeout=15.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                return True, data.get("message", "تم التجديد بنجاح"), data.get("license_key"), data.get("expires_date_utc")
+            err = resp.json().get("detail", "فشل تجديد الاشتراك.")
+            return False, str(err), None, None
+        except Exception as e:
+            return False, f"خطأ في الاتصال: {e}", None, None
+
+    def quick_register(
+        self,
+        full_name: str,
+        shop_name: str,
+        phone_number: str,
+        city: str,
+        device_id: str,
+        username: Optional[str] = None
+    ) -> Tuple[bool, str, Optional[str]]:
+        try:
+            import re
+            u_clean = username.strip() if username else re.sub(r"[^a-zA-Z0-9_]", "", phone_number) or f"user_{phone_number[-4:]}"
+            url = f"{self.base_url}/api/v1/auth/register"
+            payload = {
+                "username": u_clean,
+                "password": f"Pass@{phone_number[-4:]}#2026",
+                "full_name": full_name.strip(),
+                "shop_name": shop_name.strip(),
+                "phone_number": phone_number.strip(),
+                "city": city.strip() or "Cairo",
+                "device_id": device_id.strip()
+            }
+            resp = requests.post(url, json=payload, timeout=15.0)
+            if resp.status_code in (200, 201):
+                data = resp.json()
+                return True, "تم تسجيل الحساب بنجاح", data.get("customer_id")
+            err = resp.json().get("detail", "فشل تسجيل الحساب.")
             return False, str(err), None
         except Exception as e:
             return False, f"خطأ في الاتصال: {e}", None

@@ -22,6 +22,7 @@ class RegisterRequest(BaseModel):
     password: str = Field(..., min_length=6, max_length=100, description="كلمة المرور (6 خانات على الأقل)")
     confirm_password: str = Field(..., min_length=6, max_length=100)
     city: str = Field(..., min_length=2, max_length=50, description="المحافظة أو المدينة")
+    device_id: Optional[str] = Field(None, description="معرف الجهاز Hardware ID")
     email: Optional[str] = None
     referral_code: Optional[str] = None
     license_key: Optional[str] = Field(None, description="مفتاح الترخيص / كود الاشتراك اختياري")
@@ -341,6 +342,15 @@ class AdminApprovalRequest(BaseModel):
     customer_id: str
     action: str  # "APPROVE", "REJECT", "SUSPEND", "REACTIVATE", "BLOCK"
     plan_id: Optional[str] = None  # Auto-assign plan on approval if provided
+    custom_days: Optional[int] = None
+    device_id: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class RenewCustomerRequest(BaseModel):
+    customer_id: str
+    plan_id: str = "annual_pro"
+    custom_days: Optional[int] = None
     notes: Optional[str] = None
 
 

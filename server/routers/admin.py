@@ -17,7 +17,7 @@ from server.config import config
 from server.database import CentralDatabaseManager
 from server.dependencies import require_admin, require_licensing_admin, require_financial_admin
 from server.schemas import (
-    AdminApprovalRequest, AdminStatsResponse, PaymentRecordResponse
+    AdminApprovalRequest, RenewCustomerRequest, AdminStatsResponse, PaymentRecordResponse
 )
 from server.security import Ed25519LicensingEngine
 
@@ -127,14 +127,20 @@ def list_customers(
     cur = conn.cursor()
 
     query = """
-        SELECT c.id, c.customer_id, c.user_id, c.full_name, c.shop_name,
+        SELECT c.id, c.customer_id, c.user_id, COALESCE(u.username, '') AS username,
+               c.full_name, c.shop_name,
                c.phone_number, c.phone_verified, c.email, c.city,
                c.account_status, c.registration_policy, c.created_at, c.approved_at,
                s.plan_id AS active_plan, s.expires_date_utc AS sub_expires,
-               l.license_key
+               l.license_key,
+               COALESCE(d.device_id, '') AS device_id
         FROM server_customers c
-        LEFT JOIN server_subscriptions s ON c.customer_id = s.customer_id AND s.status = 'ACTIVE'
+        LEFT JOIN server_users u ON c.user_id = u.user_id
+        LEFT JOIN server_subscriptions s ON c.customer_id = s.customer_id AND s.status IN ('ACTIVE', 'LIFETIME', 'TRIAL')
         LEFT JOIN server_licenses l ON s.subscription_id = l.subscription_id AND l.status = 'ACTIVE'
+        LEFT JOIN (
+            SELECT customer_id, device_id FROM server_devices GROUP BY customer_id ORDER BY id DESC
+        ) d ON c.customer_id = d.customer_id
         WHERE 1=1
     """
     params = []
@@ -145,8 +151,8 @@ def list_customers(
 
     if search:
         s_term = f"%{search.strip().lower()}%"
-        query += " AND (lower(c.full_name) LIKE ? OR lower(c.shop_name) LIKE ? OR c.phone_number LIKE ? OR lower(c.customer_id) LIKE ? OR lower(l.license_key) LIKE ?)"
-        params.extend([s_term, s_term, s_term, s_term, s_term])
+        query += " AND (lower(c.full_name) LIKE ? OR lower(c.shop_name) LIKE ? OR c.phone_number LIKE ? OR lower(c.customer_id) LIKE ? OR lower(COALESCE(l.license_key, '')) LIKE ? OR lower(COALESCE(d.device_id, '')) LIKE ? OR lower(COALESCE(u.username, '')) LIKE ?)"
+        params.extend([s_term, s_term, s_term, s_term, s_term, s_term, s_term])
 
     query += " ORDER BY c.id DESC LIMIT ? OFFSET ?;"
     params.extend([limit, offset])
@@ -250,8 +256,29 @@ def review_customer_approval(
 
     issued_license_key = None
     # Auto-assign plan if approved
-    if act == "APPROVE" and payload.plan_id:
-        issued_license_key = _provision_subscription_and_license(db, cust_id, payload.plan_id, admin_name)
+    if act in ("APPROVE", "REACTIVATE") and payload.plan_id:
+        issued_license_key = _provision_subscription_and_license(
+            db, cust_id, payload.plan_id, admin_name,
+            custom_days=payload.custom_days
+        )
+        # Bind device if specified or already registered
+        target_dev = payload.device_id
+        if not target_dev:
+            cur.execute("SELECT device_id FROM server_devices WHERE customer_id = ? ORDER BY id DESC LIMIT 1;", (cust_id,))
+            d_row = cur.fetchone()
+            if d_row:
+                target_dev = d_row["device_id"]
+        if target_dev:
+            cur.execute("SELECT license_id FROM server_licenses WHERE license_key = ?;", (issued_license_key,))
+            lic_row = cur.fetchone()
+            if lic_row:
+                cur.execute("""
+                    INSERT OR REPLACE INTO server_devices (
+                        device_id, customer_id, license_id, device_name,
+                        status, registered_at_utc, last_validated_utc
+                    ) VALUES (?, ?, ?, 'Station', 'ACTIVE', ?, ?);
+                """, (target_dev, cust_id, lic_row["license_id"], now_utc, now_utc))
+                conn.commit()
 
     db.log_audit(
         actor_id=claims.get("sub", ""),
@@ -271,6 +298,61 @@ def review_customer_approval(
         "new_status": new_status,
         "account_status": new_status,
         "issued_license_key": issued_license_key
+    }
+
+
+@router.post("/customers/renew")
+def renew_customer_subscription(
+    payload: RenewCustomerRequest,
+    claims: Dict[str, Any] = Depends(require_licensing_admin)
+):
+    """Renews or extends an existing customer subscription."""
+    db = CentralDatabaseManager.get_instance()
+    conn = db.get_connection()
+    cur = conn.cursor()
+
+    cust_id = payload.customer_id
+    cur.execute("SELECT id, shop_name, account_status FROM server_customers WHERE customer_id = ?;", (cust_id,))
+    cust = cur.fetchone()
+    if not cust:
+        raise HTTPException(status_code=404, detail="العميل غير موجود.")
+
+    admin_name = claims.get("username", "admin")
+    now_utc = datetime.now(timezone.utc).isoformat()
+
+    cur.execute("UPDATE server_customers SET account_status = 'APPROVED', approved_at = COALESCE(approved_at, ?) WHERE customer_id = ?;", (now_utc, cust_id))
+    conn.commit()
+
+    lic_key = _provision_subscription_and_license(
+        db, cust_id, payload.plan_id, admin_name,
+        custom_days=payload.custom_days
+    )
+
+    cur.execute("""
+        SELECT expires_date_utc FROM server_subscriptions
+        WHERE customer_id = ? AND status IN ('ACTIVE', 'LIFETIME', 'TRIAL')
+        ORDER BY id DESC LIMIT 1;
+    """, (cust_id,))
+    sub_row = cur.fetchone()
+    new_expires = sub_row["expires_date_utc"] if sub_row else ""
+
+    db.log_audit(
+        actor_id=claims.get("sub", ""),
+        actor_username=admin_name,
+        actor_role=claims.get("role", "admin"),
+        action_type="SUBSCRIPTION_RENEW",
+        target_type="CUSTOMER",
+        target_id=cust_id,
+        result="SUCCESS",
+        metadata={"plan_id": payload.plan_id, "custom_days": payload.custom_days, "new_expires": new_expires}
+    )
+
+    return {
+        "success": True,
+        "message": "تم تجديد اشتراك العميل وتحديث صلاحيته بنجاح.",
+        "customer_id": cust_id,
+        "license_key": lic_key,
+        "expires_date_utc": new_expires
     }
 
 
