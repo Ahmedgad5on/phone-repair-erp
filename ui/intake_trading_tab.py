@@ -638,8 +638,11 @@ class IntakeTradingTab(QWidget):
             or getattr(specs, "connection_type", "") == "ios"
             or "iphone" in (getattr(specs, "marketing_name", "") or "").lower()
         )
-        if is_apple and specs.battery_health is not None and int(specs.battery_health) > 0:
+        if specs.battery_health is not None and int(specs.battery_health) > 0:
             self.sp_battery_health.setValue(int(specs.battery_health))
+            self.sp_battery_health.setEnabled(True)
+        elif is_apple:
+            self.sp_battery_health.setValue(0)
             self.sp_battery_health.setEnabled(True)
         else:
             self.sp_battery_health.setValue(0)
